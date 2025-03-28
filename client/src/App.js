@@ -61,18 +61,28 @@ const debouncedUpdate = debounce((callback) => {
 
 // Fungsi untuk memformat uptime
 const formatUptime = (seconds) => {
-  if (!seconds || isNaN(seconds) || seconds < 0) return 'Calculating...';
+  // Debug log
+  console.log('Formatting uptime:', seconds);
+  
+  if (typeof seconds !== 'number' || isNaN(seconds) || seconds < 0) {
+    console.log('Invalid uptime value');
+    return 'Calculating...';
+  }
   
   const days = Math.floor(seconds / (3600 * 24));
   const hours = Math.floor((seconds % (3600 * 24)) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
+  
+  console.log('Calculated time:', { days, hours, minutes }); // Debug log
   
   let result = [];
   if (days > 0) result.push(`${days} hari`);
   if (hours > 0) result.push(`${hours} jam`);
   if (minutes > 0 || (days === 0 && hours === 0)) result.push(`${minutes} menit`);
   
-  return result.length > 0 ? result.join(' ') : '1 menit';
+  const formatted = result.length > 0 ? result.join(' ') : '1 menit';
+  console.log('Formatted uptime:', formatted); // Debug log
+  return formatted;
 };
 
 function App() {
@@ -598,9 +608,16 @@ function App() {
 
   // Komponen untuk statistik sistem yang lebih compact
   const SystemStatsCard = ({ systemInfo }) => {
+    // Debug log
+    console.log('SystemInfo in SystemStatsCard:', systemInfo);
+    
     const uptimeValue = systemInfo?.uptime;
+    console.log('Uptime value:', uptimeValue); // Debug log
+    
     const formattedUptime = React.useMemo(() => {
-      return formatUptime(uptimeValue);
+      const result = formatUptime(uptimeValue);
+      console.log('Formatted uptime result:', result); // Debug log
+      return result;
     }, [uptimeValue]);
 
     return (
