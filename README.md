@@ -20,6 +20,37 @@ Aplikasi web untuk monitoring server VPS Debian 12 yang menampilkan metrics sist
 - Nginx
 - Git
 
+## Instalasi Otomatis (Rekomendasi)
+
+Untuk instalasi otomatis, gunakan script berikut:
+
+```bash
+# Download script instalasi
+wget https://raw.githubusercontent.com/rendiichtiarp/web-monitoring/main/install.sh
+
+# Beri izin eksekusi
+chmod +x install.sh
+
+# Jalankan script instalasi
+sudo ./install.sh
+```
+
+Script akan melakukan semua langkah instalasi secara otomatis, termasuk:
+- Update sistem
+- Instalasi dependencies
+- Konfigurasi Nginx
+- Setup service
+- Konfigurasi firewall
+- Dan lainnya
+
+Setelah instalasi selesai, dashboard dapat diakses di:
+- http://localhost (jika mengakses dari server)
+- http://IP_SERVER (jika mengakses dari luar)
+
+## Instalasi Manual
+
+Jika Anda ingin melakukan instalasi manual, ikuti langkah-langkah berikut:
+
 ## Langkah Instalasi di Debian 12
 
 ### 1. Persiapan Server

@@ -43,7 +43,7 @@ import {
 import io from 'socket.io-client';
 import { debounce } from '@mui/material/utils';
 
-const SOCKET_URL = 'http://localhost:5000';
+const SOCKET_URL = window.location.hostname;
 let socket;
 
 // Konstanta
