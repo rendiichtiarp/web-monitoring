@@ -4,6 +4,7 @@ const socketIo = require('socket.io');
 const si = require('systeminformation');
 const cors = require('cors');
 const path = require('path');
+const os = require('os');
 require('dotenv').config();
 
 const app = express();
@@ -74,12 +75,13 @@ async function getSystemInfo() {
     }
 
     // Mengambil data sistem secara parallel dengan timeout
-    const [cpu, mem, disk, network, osInfo] = await Promise.all([
+    const [cpu, mem, disk, network, osInfo, time] = await Promise.all([
       si.currentLoad().catch(err => ({ currentLoad: 0, cpus: [] })),
       si.mem().catch(err => ({ total: 0, used: 0, free: 0 })),
       si.fsSize().catch(err => []),
       si.networkStats().catch(err => []),
-      si.osInfo().catch(err => ({}))
+      si.osInfo().catch(err => ({})),
+      si.time().catch(err => ({ uptime: os.uptime() }))
     ]);
 
     // Format data disk dengan error handling
@@ -122,7 +124,7 @@ async function getSystemInfo() {
       disk: formattedDisk,
       network: formattedNetwork,
       timestamp: new Date().toISOString(),
-      uptime: osInfo.uptime || 0
+      uptime: Math.floor(time.uptime || os.uptime())
     };
 
     // Reset retry count pada sukses

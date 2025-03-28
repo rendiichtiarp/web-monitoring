@@ -61,6 +61,8 @@ const debouncedUpdate = debounce((callback) => {
 
 // Fungsi untuk memformat uptime
 const formatUptime = (seconds) => {
+  if (!seconds || isNaN(seconds)) return 'Calculating...';
+  
   const days = Math.floor(seconds / (3600 * 24));
   const hours = Math.floor((seconds % (3600 * 24)) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -68,7 +70,7 @@ const formatUptime = (seconds) => {
   let result = [];
   if (days > 0) result.push(`${days} hari`);
   if (hours > 0) result.push(`${hours} jam`);
-  if (minutes > 0) result.push(`${minutes} menit`);
+  if (minutes > 0 || (days === 0 && hours === 0)) result.push(`${minutes} menit`);
   
   return result.join(' ');
 };
@@ -607,7 +609,9 @@ function App() {
               </Typography>
             </Box>
             <Typography variant="body1" color="text.secondary">
-              {formatUptime(systemInfo.uptime)}
+              {systemInfo && typeof systemInfo.uptime === 'number' 
+                ? formatUptime(systemInfo.uptime)
+                : 'Calculating...'}
             </Typography>
           </Grid>
 
