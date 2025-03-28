@@ -66,47 +66,39 @@ const formatBytes = (bytes, decimals = 2) => {
 
 // Fungsi untuk mendapatkan informasi sistem dengan cache dan retry
 async function getSystemInfo() {
-  const now = Date.now();
-  
   try {
-    // Gunakan cache jika masih valid
-    if (systemInfoCache.data && (now - systemInfoCache.timestamp) < CACHE_DURATION) {
-      return systemInfoCache.data;
-    }
+    // Get OS info first
+    const osInfo = await si.osInfo();
+    console.log('OS Info:', osInfo); // Debug log
 
-    // Get uptime first
-    console.log('Fetching uptime data...'); // Debug log
+    // Get uptime with better error handling
     let uptime = 0;
     try {
       const timeData = await si.time();
-      console.log('Time data from si:', timeData); // Debug log
-      uptime = timeData.uptime;
-      console.log('Uptime from si:', uptime); // Debug log
+      console.log('Time data:', timeData); // Debug log
+      
+      if (timeData && typeof timeData.uptime === 'number' && timeData.uptime > 0) {
+        uptime = Math.floor(timeData.uptime);
+        console.log('Using si.time() uptime:', uptime);
+      } else {
+        uptime = Math.floor(os.uptime());
+        console.log('Using os.uptime():', uptime);
+      }
     } catch (error) {
-      console.error('Error getting uptime from si:', error);
-      uptime = os.uptime();
-      console.log('Fallback uptime from os:', uptime); // Debug log
+      console.error('Error getting uptime from si.time():', error);
+      uptime = Math.floor(os.uptime());
+      console.log('Fallback to os.uptime():', uptime);
     }
-
-    // Ensure uptime is valid
-    if (typeof uptime !== 'number' || isNaN(uptime) || uptime <= 0) {
-      console.log('Invalid uptime, using os.uptime()'); // Debug log
-      uptime = os.uptime();
-    }
-
-    uptime = Math.floor(uptime);
-    console.log('Final uptime value:', uptime); // Debug log
 
     // Get other system info
-    const [cpu, mem, disk, processes, network] = await Promise.all([
-      si.cpu(),
+    const [cpu, mem, disk, network] = await Promise.all([
+      si.currentLoad(),
       si.mem(),
       si.fsSize(),
-      si.processes(),
-      si.networkStats(),
+      si.networkStats()
     ]);
 
-    // Format data disk dengan error handling
+    // Format disk data
     const formattedDisk = disk.map(partition => ({
       fs: osInfo.platform === 'win32' ? partition.fs.split(':')[0] + ':' : partition.fs,
       size: formatBytes(partition.size),
@@ -115,11 +107,11 @@ async function getSystemInfo() {
       usedPercent: Math.min(partition.use || (partition.used / partition.size) * 100, 100).toFixed(1)
     }));
 
-    // Format network interfaces dengan error handling
+    // Format network data
     const formattedNetwork = network.map(net => ({
       interface: net.iface.replace(/\{.*\}/g, '').trim(),
-      rx_sec: formatBytes(net.rx_sec),
-      tx_sec: formatBytes(net.tx_sec),
+      rx_sec: (net.rx_sec / 1024).toFixed(2),
+      tx_sec: (net.tx_sec / 1024).toFixed(2),
       rx_bytes: formatBytes(net.rx_bytes),
       tx_bytes: formatBytes(net.tx_bytes)
     }));
@@ -132,31 +124,22 @@ async function getSystemInfo() {
         hostname: osInfo.hostname || 'unknown'
       },
       cpu: {
-        usage: cpu.currentLoad,
-        cores: cpu.cores,
-        model: cpu.manufacturer + ' ' + cpu.brand,
+        load: cpu.currentLoad ? cpu.currentLoad.toFixed(1) : '0.0',
+        cores: cpu.cpus ? cpu.cpus.length : os.cpus().length
       },
       memory: {
-        total: formatBytes(mem.total),
-        used: formatBytes(mem.used),
-        free: formatBytes(mem.free),
-        usedPercent: Math.min(((mem.used / mem.total) * 100), 100).toFixed(1)
+        total: (mem.total / (1024 * 1024 * 1024)).toFixed(2),
+        used: (mem.used / (1024 * 1024 * 1024)).toFixed(2),
+        free: (mem.free / (1024 * 1024 * 1024)).toFixed(2),
+        usedPercent: ((mem.used / mem.total) * 100).toFixed(1)
       },
       disk: formattedDisk,
       network: formattedNetwork,
-      timestamp: new Date().toISOString(),
-      uptime: uptime
+      uptime: uptime,
+      timestamp: new Date().toISOString()
     };
 
-    console.log('Final systemInfo.uptime:', systemInfo.uptime); // Debug log
-
-    // Reset retry count pada sukses
-    systemInfoCache = {
-      data: systemInfo,
-      timestamp: now,
-      retryCount: 0
-    };
-
+    console.log('Final uptime value:', systemInfo.uptime); // Debug log
     return systemInfo;
   } catch (error) {
     console.error('Error in getSystemInfo:', error);
@@ -294,8 +277,8 @@ io.on('connection', async (socket) => {
     if (!oldData) return true;
     
     // Periksa perubahan CPU
-    const cpuDiff = Math.abs(parseFloat(newData.cpu.usage) - parseFloat(oldData.cpu.usage));
-    if (cpuDiff >= 1) return true;
+    const cpuDiff = Math.abs(parseFloat(newData.cpu.load) - parseFloat(oldData.cpu.load));
+    if (cpuDiff >= 0.1) return true;
     
     // Periksa perubahan Memory
     const memDiff = Math.abs(parseFloat(newData.memory.usedPercent) - parseFloat(oldData.memory.usedPercent));
