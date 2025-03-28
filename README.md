@@ -14,97 +14,281 @@ Aplikasi web untuk monitoring server VPS Debian 12 yang menampilkan metrics sist
 
 ## Persyaratan Sistem
 
-- Node.js v14 atau lebih tinggi
-- NPM v6 atau lebih tinggi
 - Debian 12 VPS
+- Node.js v18 atau lebih tinggi
+- NPM v6 atau lebih tinggi
+- Nginx
+- Git
 
-## Instalasi
+## Langkah Instalasi di Debian 12
 
-1. Clone repository ini:
+### 1. Persiapan Server
 ```bash
-git clone [url-repository]
+# Update sistem
+sudo apt update && sudo apt upgrade -y
+
+# Install Node.js dan npm
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install Nginx
+sudo apt install -y nginx
+
+# Install Git
+sudo apt install -y git
+
+# Verifikasi instalasi
+node --version
+npm --version
+nginx -v
+```
+
+### 2. Clone dan Setup Aplikasi
+```bash
+# Buat direktori untuk aplikasi
+mkdir -p /var/www
+cd /var/www
+
+# Clone repository
+git clone https://github.com/rendiichtiarp/web-monitoring.git web-monitoring
 cd web-monitoring
-```
 
-2. Install dependencies backend:
-```bash
+# Install dependencies backend
 npm install
-```
 
-3. Install dependencies frontend:
-```bash
+# Install dependencies frontend
 cd client
 npm install
-```
-
-4. Kembali ke direktori root dan buat file .env:
-```bash
+npm run build
 cd ..
-echo "PORT=5000" > .env
 ```
 
-## Menjalankan Aplikasi
-
-1. Jalankan backend server:
+### 3. Konfigurasi Environment
 ```bash
-npm run dev
+# Buat file .env di root folder
+cat << EOF > .env
+PORT=5000
+NODE_ENV=production
+EOF
 ```
 
-2. Di terminal terpisah, jalankan frontend:
+### 4. Setup Service Systemd
 ```bash
-cd client
-npm start
+# Buat file service
+sudo nano /etc/systemd/system/web-monitoring.service
 ```
 
-3. Buka browser dan akses `http://localhost:3000`
+Isi dengan konfigurasi berikut:
+```ini
+[Unit]
+Description=Web Monitoring Server
+After=network.target
 
-## Konfigurasi Nginx (Opsional)
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/web-monitoring
+ExecStart=/usr/bin/node server.js
+Restart=always
+Environment=NODE_ENV=production
+Environment=PORT=5000
 
-Untuk mengakses dashboard dari luar server, Anda dapat mengkonfigurasi Nginx sebagai reverse proxy:
+[Install]
+WantedBy=multi-user.target
+```
 
-1. Install Nginx:
+### 5. Konfigurasi Nginx
 ```bash
-sudo apt update
-sudo apt install nginx
+# Buat konfigurasi Nginx
+sudo nano /etc/nginx/sites-available/web-monitoring
 ```
 
-2. Buat konfigurasi Nginx:
-```bash
-sudo nano /etc/nginx/sites-available/monitoring
-```
-
-3. Tambahkan konfigurasi berikut:
+Isi dengan konfigurasi berikut:
 ```nginx
 server {
     listen 80;
-    server_name your-domain.com;
+    server_name your-domain.com; # Ganti dengan domain Anda
 
+    root /var/www/web-monitoring/client/build;
+    index index.html;
+
+    # Frontend static files
     location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
     }
 
+    # Backend API dan WebSocket
     location /socket.io/ {
         proxy_pass http://localhost:5000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        
+        # WebSocket timeout settings
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
     }
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-XSS-Protection "1; mode=block";
+    add_header X-Content-Type-Options "nosniff";
+
+    # Logging
+    access_log /var/log/nginx/web-monitoring.access.log;
+    error_log /var/log/nginx/web-monitoring.error.log;
 }
 ```
 
-4. Aktifkan konfigurasi:
+### 6. Aktifkan Konfigurasi
 ```bash
-sudo ln -s /etc/nginx/sites-available/monitoring /etc/nginx/sites-enabled/
+# Buat symlink
+sudo ln -s /etc/nginx/sites-available/web-monitoring /etc/nginx/sites-enabled/
+
+# Set permissions
+sudo chown -R www-data:www-data /var/www/web-monitoring
+sudo chmod -R 755 /var/www/web-monitoring
+
+# Test konfigurasi Nginx
 sudo nginx -t
+
+# Restart Nginx
+sudo systemctl restart nginx
+
+# Start dan enable service monitoring
+sudo systemctl start web-monitoring
+sudo systemctl enable web-monitoring
+```
+
+### 7. Setup Firewall (UFW)
+```bash
+# Install UFW jika belum ada
+sudo apt install -y ufw
+
+# Konfigurasi firewall
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 22/tcp
+
+# Aktifkan firewall
+sudo ufw enable
+```
+
+### 8. SSL/HTTPS (Opsional)
+```bash
+# Install Certbot
+sudo apt install -y certbot python3-certbot-nginx
+
+# Setup SSL
+sudo certbot --nginx -d your-domain.com
+
+# Auto-renewal SSL
+sudo systemctl status certbot.timer
+```
+
+## Monitoring dan Troubleshooting
+
+### Monitor Log
+```bash
+# Log aplikasi
+sudo journalctl -u web-monitoring -f
+
+# Log Nginx
+sudo tail -f /var/log/nginx/web-monitoring.error.log
+sudo tail -f /var/log/nginx/web-monitoring.access.log
+```
+
+### Cek Status Service
+```bash
+# Status aplikasi
+sudo systemctl status web-monitoring
+
+# Status Nginx
+sudo systemctl status nginx
+```
+
+### Restart Service
+```bash
+# Restart aplikasi
+sudo systemctl restart web-monitoring
+
+# Restart Nginx
 sudo systemctl restart nginx
 ```
+
+## Pemeliharaan
+
+### Update Aplikasi
+```bash
+cd /var/www/web-monitoring
+git pull
+npm install
+cd client
+npm install
+npm run build
+cd ..
+sudo systemctl restart web-monitoring
+```
+
+### Backup Konfigurasi
+```bash
+# Backup Nginx config
+sudo cp /etc/nginx/sites-available/web-monitoring /etc/nginx/sites-available/web-monitoring.backup
+
+# Backup .env
+cp .env .env.backup
+```
+
+## Troubleshooting Umum
+
+### 1. Masalah WebSocket
+Jika mengalami error "websocket error":
+- Periksa konfigurasi Nginx terutama bagian location /socket.io/
+- Pastikan port 5000 tidak diblokir firewall
+- Cek log aplikasi untuk error spesifik
+
+### 2. Masalah Permission
+```bash
+# Reset permissions jika diperlukan
+sudo chown -R www-data:www-data /var/www/web-monitoring
+sudo chmod -R 755 /var/www/web-monitoring
+```
+
+### 3. Masalah Service Tidak Jalan
+```bash
+# Cek status dan log
+sudo systemctl status web-monitoring
+sudo journalctl -u web-monitoring -n 100 --no-pager
+```
+
+## Catatan Penting
+
+1. Ganti `your-domain.com` dengan domain Anda yang sebenarnya
+2. Pastikan DNS sudah dikonfigurasi dengan benar jika menggunakan domain
+3. Backup konfigurasi sebelum melakukan perubahan besar
+4. Monitor penggunaan resource server secara berkala
+5. Update sistem dan dependencies secara teratur
+
+## Keamanan
+
+1. Selalu gunakan HTTPS di production
+2. Update sistem secara berkala
+3. Monitor log untuk aktivitas mencurigakan
+4. Batasi akses SSH hanya dari IP yang dipercaya
+5. Gunakan strong password atau SSH key
+
+## Support
+
+Jika mengalami masalah atau butuh bantuan:
+1. Cek log aplikasi dan Nginx
+2. Periksa status service
+3. Pastikan semua port yang diperlukan terbuka
+4. Verifikasi konfigurasi Nginx
 
 ## Penggunaan
 
