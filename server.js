@@ -75,14 +75,25 @@ async function getSystemInfo() {
     }
 
     // Mengambil data sistem secara parallel dengan timeout
-    const [cpu, mem, disk, network, osInfo, time] = await Promise.all([
+    const [cpu, mem, disk, network, osInfo] = await Promise.all([
       si.currentLoad().catch(err => ({ currentLoad: 0, cpus: [] })),
       si.mem().catch(err => ({ total: 0, used: 0, free: 0 })),
       si.fsSize().catch(err => []),
       si.networkStats().catch(err => []),
-      si.osInfo().catch(err => ({})),
-      si.time().catch(err => ({ uptime: os.uptime() }))
+      si.osInfo().catch(err => ({}))
     ]);
+
+    // Ambil uptime secara terpisah untuk memastikan nilai yang benar
+    let uptime;
+    try {
+      const timeData = await si.time();
+      uptime = timeData.uptime;
+      if (!uptime || uptime <= 0) {
+        uptime = os.uptime();
+      }
+    } catch (err) {
+      uptime = os.uptime();
+    }
 
     // Format data disk dengan error handling
     const formattedDisk = disk.map(partition => ({
@@ -124,7 +135,7 @@ async function getSystemInfo() {
       disk: formattedDisk,
       network: formattedNetwork,
       timestamp: new Date().toISOString(),
-      uptime: Math.floor(time.uptime || os.uptime())
+      uptime: Math.floor(uptime) // Pastikan uptime adalah bilangan bulat
     };
 
     // Reset retry count pada sukses

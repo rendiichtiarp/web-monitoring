@@ -61,7 +61,7 @@ const debouncedUpdate = debounce((callback) => {
 
 // Fungsi untuk memformat uptime
 const formatUptime = (seconds) => {
-  if (!seconds || isNaN(seconds)) return 'Calculating...';
+  if (!seconds || isNaN(seconds) || seconds < 0) return 'Calculating...';
   
   const days = Math.floor(seconds / (3600 * 24));
   const hours = Math.floor((seconds % (3600 * 24)) / 3600);
@@ -72,7 +72,7 @@ const formatUptime = (seconds) => {
   if (hours > 0) result.push(`${hours} jam`);
   if (minutes > 0 || (days === 0 && hours === 0)) result.push(`${minutes} menit`);
   
-  return result.join(' ');
+  return result.length > 0 ? result.join(' ') : '1 menit';
 };
 
 function App() {
@@ -597,61 +597,66 @@ function App() {
   );
 
   // Komponen untuk statistik sistem yang lebih compact
-  const SystemStatsCard = ({ systemInfo }) => (
-    <Card sx={{ mb: 4 }}>
-      <CardContent>
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={4}>
-            <Box display="flex" alignItems="center" mb={1}>
-              <Timer sx={{ fontSize: '1.25rem', color: 'info.main' }} />
-              <Typography variant="subtitle1" ml={1} fontWeight="500">
-                Uptime Server
-              </Typography>
-            </Box>
-            <Typography variant="body1" color="text.secondary">
-              {systemInfo && typeof systemInfo.uptime === 'number' 
-                ? formatUptime(systemInfo.uptime)
-                : 'Calculating...'}
-            </Typography>
-          </Grid>
+  const SystemStatsCard = ({ systemInfo }) => {
+    const uptimeValue = systemInfo?.uptime;
+    const formattedUptime = React.useMemo(() => {
+      return formatUptime(uptimeValue);
+    }, [uptimeValue]);
 
-          <Grid item xs={12} md={4}>
-            <Box display="flex" alignItems="center" mb={1}>
-              <MemoryIcon sx={{ fontSize: '1.25rem', color: 'info.main' }} />
-              <Typography variant="subtitle1" ml={1} fontWeight="500">
-                Informasi CPU
-              </Typography>
-            </Box>
-            <Box display="flex" gap={2}>
+    return (
+      <Card sx={{ mb: 4 }}>
+        <CardContent>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={4}>
+              <Box display="flex" alignItems="center" mb={1}>
+                <Timer sx={{ fontSize: '1.25rem', color: 'info.main' }} />
+                <Typography variant="subtitle1" ml={1} fontWeight="500">
+                  Uptime Server
+                </Typography>
+              </Box>
               <Typography variant="body1" color="text.secondary">
-                Core: {systemInfo.cpu.cores.length}
+                {formattedUptime}
               </Typography>
-              <Typography variant="body1" color="text.secondary">
-                Load: {systemInfo.cpu.load}%
-              </Typography>
-            </Box>
-          </Grid>
+            </Grid>
 
-          <Grid item xs={12} md={4}>
-            <Box display="flex" alignItems="center" mb={1}>
-              <Info sx={{ fontSize: '1.25rem', color: 'info.main' }} />
-              <Typography variant="subtitle1" ml={1} fontWeight="500">
-                Informasi Sistem
-              </Typography>
-            </Box>
-            <Box display="flex" flexDirection="column" gap={0.5}>
-              <Typography variant="body1" color="text.secondary" noWrap>
-                {systemInfo.os.distro} {systemInfo.os.release}
-              </Typography>
-              <Typography variant="body1" color="text.secondary">
-                {systemInfo.os.platform === 'win32' ? 'Windows' : systemInfo.os.platform}
-              </Typography>
-            </Box>
+            <Grid item xs={12} md={4}>
+              <Box display="flex" alignItems="center" mb={1}>
+                <MemoryIcon sx={{ fontSize: '1.25rem', color: 'info.main' }} />
+                <Typography variant="subtitle1" ml={1} fontWeight="500">
+                  Informasi CPU
+                </Typography>
+              </Box>
+              <Box display="flex" gap={2}>
+                <Typography variant="body1" color="text.secondary">
+                  Core: {systemInfo.cpu.cores.length}
+                </Typography>
+                <Typography variant="body1" color="text.secondary">
+                  Load: {systemInfo.cpu.load}%
+                </Typography>
+              </Box>
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+              <Box display="flex" alignItems="center" mb={1}>
+                <Info sx={{ fontSize: '1.25rem', color: 'info.main' }} />
+                <Typography variant="subtitle1" ml={1} fontWeight="500">
+                  Informasi Sistem
+                </Typography>
+              </Box>
+              <Box display="flex" flexDirection="column" gap={0.5}>
+                <Typography variant="body1" color="text.secondary" noWrap>
+                  {systemInfo.os.distro} {systemInfo.os.release}
+                </Typography>
+                <Typography variant="body1" color="text.secondary">
+                  {systemInfo.os.platform === 'win32' ? 'Windows' : systemInfo.os.platform}
+                </Typography>
+              </Box>
+            </Grid>
           </Grid>
-        </Grid>
-      </CardContent>
-    </Card>
-  );
+        </CardContent>
+      </Card>
+    );
+  };
 
   // Optimized loading state
   if (!isConnected || !systemInfo) {
