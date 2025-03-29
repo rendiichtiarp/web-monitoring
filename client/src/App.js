@@ -17,10 +17,9 @@ import { Button } from './components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './components/ui/card';
 import { Progress } from './components/ui/progress';
 
-const SOCKET_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5000'
-  : `${window.location.protocol}//${window.location.hostname}:5000`;
-let socket;
+const SOCKET_URL = window.location.protocol === 'https:' 
+  ? `https://${window.location.hostname}`
+  : `http://${window.location.hostname}:5000`;
 
 // Constants
 const HISTORY_LENGTH = 30;
@@ -120,6 +119,7 @@ function App() {
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [socketStatus, setSocketStatus] = useState('disconnected');
   const [mounted, setMounted] = useState(false);
+  const [socket, setSocket] = useState(null);
 
   const { theme, setTheme } = useTheme();
 
@@ -218,14 +218,15 @@ function App() {
         setSocketStatus('connecting');
         console.log('Mencoba koneksi ke:', SOCKET_URL);
         
-        socket = io(SOCKET_URL, {
+        const newSocket = io(SOCKET_URL, {
           ...socketOptions,
           query: { t: Date.now() }
         });
 
-        socket.connect();
+        setSocket(newSocket);
+        newSocket.connect();
 
-        socket.io.on("error", (error) => {
+        newSocket.io.on("error", (error) => {
           console.error('Transport error:', error);
           setError(`Error koneksi: ${error.message}`);
           setSocketStatus('error');
@@ -237,7 +238,7 @@ function App() {
           }
         });
 
-        socket.on('connect_error', (error) => {
+        newSocket.on('connect_error', (error) => {
           console.error('Connection error:', error);
           setError(`Error koneksi: ${error.message}`);
           setSocketStatus('error');
@@ -250,7 +251,7 @@ function App() {
           }
         });
 
-        socket.on('connect', () => {
+        newSocket.on('connect', () => {
           console.log('Socket terhubung');
           setIsConnected(true);
           setSocketStatus('connected');
@@ -260,13 +261,13 @@ function App() {
           // Set up ping interval
           if (pingInterval) clearInterval(pingInterval);
           pingInterval = setInterval(() => {
-            if (socket?.connected) {
-              socket.emit('ping');
+            if (newSocket?.connected) {
+              newSocket.emit('ping');
             }
           }, PING_INTERVAL);
         });
 
-        socket.on('disconnect', (reason) => {
+        newSocket.on('disconnect', (reason) => {
           console.log('Socket terputus:', reason);
           setIsConnected(false);
           setSocketStatus('disconnected');
@@ -283,11 +284,11 @@ function App() {
           }
         });
 
-        socket.on('pong', () => {
+        newSocket.on('pong', () => {
           setError(null);
         });
 
-        socket.on('systemInfo', (data) => {
+        newSocket.on('systemInfo', (data) => {
           if (!data) return;
           try {
             updateSystemData(data);
