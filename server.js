@@ -67,6 +67,14 @@ const ACTIVE_CONNECTIONS = new Map();
 const HISTORY_FILE = path.join(__dirname, 'data', 'history.json');
 const STATS_FILE = path.join(__dirname, 'data', 'stats.json');
 const MAX_HISTORY_LENGTH = 30;  // Kurangi panjang history
+const DEBUG = true; // Enable debugging
+
+// Fungsi helper untuk logging
+const debugLog = (message, data) => {
+  if (DEBUG) {
+    console.log(`[DEBUG] ${message}:`, data);
+  }
+};
 
 // Buat direktori data jika belum ada
 if (!fs.existsSync(path.join(__dirname, 'data'))) {
@@ -230,11 +238,13 @@ let lastNetworkTime = null;
 // Modifikasi fungsi getSystemInfo untuk mengoptimalkan data
 async function getSystemInfo() {
   try {
-    const [currentStats, cpuData, mem, disk, osInfo] = await Promise.all([
-      si.networkStats(),
+    // Dapatkan semua interface network yang aktif
+    const networkInterfaces = await si.networkInterfaces();
+    const currentStats = await si.networkStats();
+    const [cpuData, mem, disk, osInfo] = await Promise.all([
       si.currentLoad().then(data => ({
         ...data,
-        cpus: data.cpus || [] // Memastikan ada data CPU per core
+        cpus: data.cpus || []
       })),
       si.mem(),
       si.fsSize(),
@@ -243,31 +253,36 @@ async function getSystemInfo() {
 
     const currentTime = Date.now();
     
-    // Hitung network speed berdasarkan delta waktu yang sebenarnya
-    const networkStats = currentStats.map((current) => {
-      let rx_speed = 0;
-      let tx_speed = 0;
+    // Filter hanya interface yang aktif
+    const activeInterfaces = networkInterfaces.filter(iface => 
+      iface.operstate === 'up' && !iface.internal
+    );
+    
+    // Hitung network speed untuk semua interface aktif
+    const networkStats = currentStats
+      .filter(stat => activeInterfaces.some(iface => iface.iface === stat.iface))
+      .map((current) => {
+        let rx_speed = 0;
+        let tx_speed = 0;
 
-      if (lastNetworkStats && lastNetworkTime) {
-        const timeDiff = (currentTime - lastNetworkTime) / 1000; // Konversi ke detik
-        const lastStat = lastNetworkStats.find(stat => stat.iface === current.iface);
-        
-        if (lastStat) {
-          rx_speed = (current.rx_bytes - lastStat.rx_bytes) / timeDiff;
-          tx_speed = (current.tx_bytes - lastStat.tx_bytes) / timeDiff;
+        if (lastNetworkStats && lastNetworkTime) {
+          const timeDiff = (currentTime - lastNetworkTime) / 1000; // Konversi ke detik
+          const lastStat = lastNetworkStats.find(stat => stat.iface === current.iface);
           
-          rx_speed = Math.max(0, rx_speed);
-          tx_speed = Math.max(0, tx_speed);
+          if (lastStat && timeDiff > 0) {
+            rx_speed = Math.max(0, (current.rx_bytes - lastStat.rx_bytes) / timeDiff);
+            tx_speed = Math.max(0, (current.tx_bytes - lastStat.tx_bytes) / timeDiff);
+          }
         }
-      }
 
-      return {
-        iface: current.iface,
-        rx_sec: rx_speed,
-        tx_sec: tx_speed,
-        rx_bytes: current.rx_bytes,
-        tx_bytes: current.tx_bytes
-      };
+        return {
+          iface: current.iface,
+          rx_sec: rx_speed,
+          tx_sec: tx_speed,
+          rx_bytes: current.rx_bytes,
+          tx_bytes: current.tx_bytes,
+          operstate: activeInterfaces.find(i => i.iface === current.iface)?.operstate || 'unknown'
+        };
     });
 
     // Update data terakhir untuk perhitungan berikutnya
@@ -296,16 +311,7 @@ async function getSystemInfo() {
         available: formatBytes(partition.available),
         usedPercent: ((partition.used / partition.size) * 100).toFixed(1)
       })),
-      network: networkStats.map(net => ({
-        interface: net.iface,
-        rx_sec: formatNetworkSpeed(net.rx_sec),
-        tx_sec: formatNetworkSpeed(net.tx_sec),
-        rx_bytes: formatBytes(net.rx_bytes),
-        tx_bytes: formatBytes(net.tx_bytes),
-        // Tambahkan nilai raw untuk grafik
-        rx_speed_raw: net.rx_sec,
-        tx_speed_raw: net.tx_sec
-      })),
+      network: networkStats,
       os: {
         platform: osInfo.platform,
         distro: osInfo.distro,
@@ -377,144 +383,47 @@ app.use((err, req, res, next) => {
 
 // Modifikasi event handler connection
 io.on('connection', async (socket) => {
-  console.log('Client terhubung:', socket.id);
-  
-  let updateInterval;
-  let retryCount = 0;
-  
-  const connection = {
-    id: socket.id,
-    connected: true,
-    lastPing: Date.now(),
-    updateInterval: null,
-    retryCount: 0,
-    reconnecting: false
-  };
-  
-  ACTIVE_CONNECTIONS.set(socket.id, connection);
-
-  // Handle ping dengan timeout yang lebih lama
-  socket.on('ping', () => {
-    if (!socket.connected) return;
-    socket.emit('pong', { 
-      timestamp: new Date().toISOString(),
-      id: socket.id 
+  try {
+    debugLog('New client connected', socket.id);
+    ACTIVE_CONNECTIONS.set(socket.id, {
+      connected: true,
+      lastPing: Date.now()
     });
-    const conn = ACTIVE_CONNECTIONS.get(socket.id);
-    if (conn) {
-      conn.lastPing = Date.now();
-      conn.retryCount = 0;
-      conn.reconnecting = false;
-    }
-  });
 
-  // Handle error
-  socket.on('error', (error) => {
-    console.error(`Socket error (${socket.id}):`, error);
-    const conn = ACTIVE_CONNECTIONS.get(socket.id);
-    if (conn) {
-      conn.retryCount++;
-      if (conn.retryCount <= MAX_RETRIES) {
-        conn.reconnecting = true;
-        setTimeout(() => {
-          if (socket.connected) {
-            startUpdateInterval();
-          }
-        }, SOCKET_RETRY_DELAY);
+    // Kirim data awal
+    const initialData = await getSystemInfo();
+    debugLog('Initial network interfaces', initialData.network);
+    socket.emit('systemInfo', initialData);
+
+    socket.on('disconnect', () => {
+      debugLog('Client disconnected', socket.id);
+      ACTIVE_CONNECTIONS.delete(socket.id);
+    });
+
+    socket.on('pong', () => {
+      const connection = ACTIVE_CONNECTIONS.get(socket.id);
+      if (connection) {
+        connection.lastPing = Date.now();
+        debugLog('Client pong received', { socketId: socket.id, lastPing: connection.lastPing });
       }
-    }
-  });
+    });
 
-  // Handle disconnect dengan reconnect yang lebih baik
-  socket.on('disconnect', (reason) => {
-    console.log(`Client terputus (${socket.id}). Alasan:`, reason);
-    
-    const conn = ACTIVE_CONNECTIONS.get(socket.id);
-    if (conn) {
-      conn.connected = false;
-      conn.disconnectTime = Date.now();
-      
-      if (conn.updateInterval) {
-        clearInterval(conn.updateInterval);
-        conn.updateInterval = null;
-      }
-
-      // Coba reconnect jika disconnect bukan karena client sengaja memutuskan
-      if (reason !== 'client namespace disconnect' && !conn.reconnecting) {
-        conn.reconnecting = true;
-        setTimeout(() => {
-          if (socket.connected) {
-            conn.connected = true;
-            conn.reconnecting = false;
-            startUpdateInterval();
-          }
-        }, SOCKET_RETRY_DELAY);
-      }
-    }
-
-    if (updateInterval) {
-      clearInterval(updateInterval);
-      updateInterval = null;
-    }
-  });
-
-  const startUpdateInterval = async () => {
-    try {
-      const conn = ACTIVE_CONNECTIONS.get(socket.id);
-      if (!conn || !socket.connected) return;
-
-      // Kirim data awal
-      const initialData = await getSystemInfo();
-      if (socket.connected) {
-        socket.emit('systemInfo', initialData);
-        saveHistory(initialData);
-      }
-
-      // Set interval untuk update
-      if (conn.updateInterval) {
-        clearInterval(conn.updateInterval);
-      }
-
-      conn.updateInterval = setInterval(async () => {
-        try {
-          if (!socket.connected) {
-            clearInterval(conn.updateInterval);
-            return;
-          }
-
-          const newData = await getSystemInfo();
-          if (socket.connected) {
-            socket.emit('systemInfo', newData);
-            saveHistory(newData);
-            conn.retryCount = 0;
-          }
-        } catch (err) {
-          console.error('Error in update interval:', err);
-          conn.retryCount++;
-
-          if (conn.retryCount > MAX_RETRIES) {
-            clearInterval(conn.updateInterval);
-            socket.disconnect();
-          }
-        }
-      }, UPDATE_INTERVAL);
-
-      ACTIVE_CONNECTIONS.set(socket.id, conn);
-
-    } catch (err) {
-      console.error('Error starting update interval:', err);
-      retryCount++;
-      
-      if (retryCount <= MAX_RETRIES && socket.connected) {
-        setTimeout(() => startUpdateInterval(), SOCKET_RETRY_DELAY);
-      } else {
-        socket.disconnect();
-      }
-    }
-  };
-
-  await startUpdateInterval();
+  } catch (error) {
+    console.error('Error in socket connection:', error);
+  }
 });
+
+// Update interval untuk monitoring
+setInterval(async () => {
+  try {
+    const data = await getSystemInfo();
+    debugLog('Network statistics', data.network);
+    io.emit('systemInfo', data);
+    saveHistory(data);
+  } catch (error) {
+    console.error('Error in update interval:', error);
+  }
+}, UPDATE_INTERVAL);
 
 // Tambahkan interval untuk monitoring koneksi aktif
 setInterval(() => {

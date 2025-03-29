@@ -34,6 +34,15 @@ const debouncedUpdate = debounce((callback) => {
   callback();
 }, 300);
 
+// Format bytes function
+const formatBytes = (bytes) => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
 // Format uptime function
 const formatUptime = (seconds) => {
   if (typeof seconds !== 'number' || isNaN(seconds) || seconds < 0) {
@@ -674,12 +683,15 @@ function App() {
             </Card>
 
             {/* Network Cards - Full Width */}
-            {systemInfo?.network?.map((net, index) => (
+            {systemInfo?.network?.filter(net => net.operstate === 'up').map((net, index) => (
               <Card key={index} className="lg:col-span-2">
                 <CardHeader className="p-4">
                   <CardTitle className="flex items-center space-x-2 text-lg">
                     <NetworkIcon className="h-4 w-4" />
-                    <span>Network ({net.interface})</span>
+                    <span>Network ({net.iface})</span>
+                    <span className="text-xs text-muted-foreground ml-2">
+                      Status: {net.operstate}
+                    </span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-4 pt-0">
@@ -687,7 +699,9 @@ function App() {
                     {/* Upload Graph */}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xl font-semibold text-sky-500">{net.tx_sec}</span>
+                        <span className="text-xl font-semibold text-sky-500">
+                          {formatNetworkSpeed(net.tx_sec * 8)} {/* Convert to bits */}
+                        </span>
                         <div className="flex items-center space-x-2">
                           <span className="text-xs text-muted-foreground">Upload</span>
                           <span className="text-xs text-muted-foreground">
@@ -736,7 +750,7 @@ function App() {
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <div>
                           <p>Total Upload</p>
-                          <p className="text-sm font-medium">{net.tx_bytes}</p>
+                          <p className="text-sm font-medium">{formatBytes(net.tx_bytes)}</p>
                         </div>
                       </div>
                     </div>
@@ -744,7 +758,9 @@ function App() {
                     {/* Download Graph */}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xl font-semibold text-emerald-500">{net.rx_sec}</span>
+                        <span className="text-xl font-semibold text-emerald-500">
+                          {formatNetworkSpeed(net.rx_sec * 8)} {/* Convert to bits */}
+                        </span>
                         <div className="flex items-center space-x-2">
                           <span className="text-xs text-muted-foreground">Download</span>
                           <span className="text-xs text-muted-foreground">
@@ -793,7 +809,7 @@ function App() {
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <div>
                           <p>Total Download</p>
-                          <p className="text-sm font-medium">{net.rx_bytes}</p>
+                          <p className="text-sm font-medium">{formatBytes(net.rx_bytes)}</p>
                         </div>
                       </div>
                     </div>
