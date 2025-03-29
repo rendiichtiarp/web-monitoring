@@ -1,0 +1,46 @@
+{
+  "cpu": {
+    "load": "99.9",
+    "cores": 8
+  },
+  "memory": {
+    "total": "15.9",
+    "used": "8.5",
+    "usedPercent": "53.4"
+  },
+  "disk": [
+    {
+      "fs": "C:",
+      "size": "118.49 GB",
+      "used": "110.6 GB",
+      "available": "7.89 GB",
+      "usedPercent": "93.3"
+    },
+    {
+      "fs": "D:",
+      "size": "465.76 GB",
+      "used": "433.83 GB",
+      "available": "31.93 GB",
+      "usedPercent": "93.1"
+    }
+  ],
+  "network": [
+    {
+      "interface": "ethernet",
+      "rx_sec": "0 bps",
+      "tx_sec": "0 bps",
+      "rx_bytes": "0 Bytes",
+      "tx_bytes": "0 Bytes",
+      "rx_speed_raw": 0,
+      "tx_speed_raw": 0
+    }
+  ],
+  "os": {
+    "platform": "Windows",
+    "distro": "Microsoft Windows 11 Pro",
+    "release": "10.0.26100",
+    "hostname": "PC-RENDIICHTIAR",
+    "uptime": 3519.328
+  },
+  "timestamp": "2025-03-29T08:04:09.510Z"
+}

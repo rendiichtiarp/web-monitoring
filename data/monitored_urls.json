@@ -1,0 +1,8 @@
+[
+  {
+    "id": "main-website",
+    "url": "https://example.com",
+    "name": "Website Utama",
+    "checkInterval": 300000
+  }
+]

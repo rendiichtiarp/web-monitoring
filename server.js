@@ -1,6 +1,5 @@
 const express = require('express');
 const http = require('http');
-const https = require('https');
 const socketIo = require('socket.io');
 const si = require('systeminformation');
 const cors = require('cors');
@@ -30,18 +29,18 @@ const io = socketIo(server, {
     credentials: true
   },
   transports: ['websocket', 'polling'],
-  pingTimeout: 5000,        // Diubah dari 60000 ke 5000
-  pingInterval: 1000,       // Diubah dari 25000 ke 1000
-  upgradeTimeout: 5000,     // Diubah dari 30000 ke 5000
+  pingTimeout: 60000,        // Naikkan timeout ping
+  pingInterval: 25000,       // Sesuaikan interval ping
+  upgradeTimeout: 30000,     // Naikkan timeout upgrade
   maxHttpBufferSize: 1e6,
   allowEIO3: true,
   path: '/socket.io/',
   serveClient: true,
-  connectTimeout: 5000,     // Diubah dari 45000 ke 5000
-  reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 500,   // Diubah dari 1000 ke 500
-  reconnectionDelayMax: 1000 // Diubah dari 5000 ke 1000
+  connectTimeout: 45000,     // Naikkan timeout koneksi
+  reconnection: true,        // Aktifkan reconnection
+  reconnectionAttempts: 5,   // Maksimal 5 kali percobaan
+  reconnectionDelay: 1000,   // Delay 1 detik sebelum mencoba lagi
+  reconnectionDelayMax: 5000 // Maksimal delay 5 detik
 });
 
 // Tambahkan middleware untuk menangani OPTIONS request
@@ -60,105 +59,21 @@ app.get('/socket.io/', (req, res) => {
 });
 
 // Konstanta
-const UPDATE_INTERVAL = 10000;  // Diubah dari 5000 ke 10000 (10 detik)
-const CACHE_DURATION = 5000;   // Diubah dari 2000 ke 5000 (5 detik)
-const MAX_RETRIES = 3;
-const SOCKET_RETRY_DELAY = 5000; // Diubah dari 3000 ke 5000 (5 detik)
+const UPDATE_INTERVAL = 3000;  // Naikkan ke 3 detik
+const CACHE_DURATION = 2000;   // Naikkan ke 2 detik
+const MAX_RETRIES = 3;        // Kurangi max retries
+const SOCKET_RETRY_DELAY = 3000; // Naikkan delay retry
 const ACTIVE_CONNECTIONS = new Map();
 const HISTORY_FILE = path.join(__dirname, 'data', 'history.json');
-const MAX_HISTORY_LENGTH = 20;  // Kurangi dari 30 ke 20
-
-// Tambahkan konfigurasi website untuk monitoring
-const WEBSITES_TO_MONITOR = [
-  {
-    name: 'Google',
-    url: 'https://www.google.com',
-    interval: 600000 // Diubah dari 300000 ke 600000 (10 menit)
-  },
-  {
-    name: 'Cloudflare',
-    url: 'https://www.cloudflare.com',
-    interval: 600000 // Diubah dari 300000 ke 600000 (10 menit)
-  }
-];
-
-// Fungsi untuk melakukan ping ke website
-const pingWebsite = async (website) => {
-  const startTime = Date.now();
-  
-  return new Promise((resolve) => {
-    const isHttps = website.url.startsWith('https');
-    const client = isHttps ? https : http;
-    
-    const req = client.get(website.url, (res) => {
-      const endTime = Date.now();
-      const responseTime = endTime - startTime;
-      
-      resolve({
-        name: website.name,
-        url: website.url,
-        status: res.statusCode,
-        responseTime,
-        online: res.statusCode >= 200 && res.statusCode < 400,
-        timestamp: new Date().toISOString()
-      });
-    });
-
-    req.on('error', (error) => {
-      resolve({
-        name: website.name,
-        url: website.url,
-        status: 0,
-        responseTime: 0,
-        online: false,
-        error: error.message,
-        timestamp: new Date().toISOString()
-      });
-    });
-
-    req.setTimeout(10000, () => {
-      req.destroy();
-      resolve({
-        name: website.name,
-        url: website.url,
-        status: 0,
-        responseTime: 10000,
-        online: false,
-        error: 'Timeout',
-        timestamp: new Date().toISOString()
-      });
-    });
-  });
-};
-
-// Simpan status website
-let websiteStatus = new Map();
-
-// Fungsi untuk memulai monitoring website
-const startWebsiteMonitoring = (io) => {
-  WEBSITES_TO_MONITOR.forEach(website => {
-    const monitor = async () => {
-      try {
-        const status = await pingWebsite(website);
-        websiteStatus.set(website.url, status);
-        io.emit('websiteStatus', Array.from(websiteStatus.values()));
-      } catch (error) {
-        console.error(`Error monitoring ${website.url}:`, error);
-      }
-    };
-
-    // Mulai monitoring
-    monitor();
-    setInterval(monitor, website.interval);
-  });
-};
+const STATS_FILE = path.join(__dirname, 'data', 'stats.json');
+const MAX_HISTORY_LENGTH = 30;  // Kurangi panjang history
 
 // Buat direktori data jika belum ada
 if (!fs.existsSync(path.join(__dirname, 'data'))) {
   fs.mkdirSync(path.join(__dirname, 'data'));
 }
 
-// Inisialisasi data historis
+// Inisialisasi data historis dan statistik
 let systemHistory = {
   cpu: [],
   memory: [],
@@ -169,11 +84,19 @@ let systemHistory = {
   timestamp: new Date().toISOString()
 };
 
-// Load data historis jika ada
+let lastStats = {
+  cpu: { load: 0, cores: 0 },
+  memory: { total: 0, used: 0, usedPercent: 0 },
+  disk: [],
+  network: [],
+  os: {},
+  timestamp: new Date().toISOString()
+};
+
+// Load data historis dan statistik jika ada
 try {
   if (fs.existsSync(HISTORY_FILE)) {
     const historyData = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
-    // Pastikan struktur data valid
     systemHistory = {
       cpu: Array.isArray(historyData.cpu) ? historyData.cpu : [],
       memory: Array.isArray(historyData.memory) ? historyData.memory : [],
@@ -184,11 +107,24 @@ try {
       timestamp: historyData.timestamp || new Date().toISOString()
     };
   }
+
+  if (fs.existsSync(STATS_FILE)) {
+    lastStats = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
+  }
 } catch (error) {
-  console.error('Error loading history:', error);
+  console.error('Error loading data:', error);
 }
 
-// Modifikasi fungsi saveHistory
+// Fungsi untuk menyimpan statistik terakhir
+const saveStats = (data) => {
+  try {
+    fs.writeFileSync(STATS_FILE, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error('Error saving stats:', error);
+  }
+};
+
+// Modifikasi fungsi saveHistory untuk menyimpan data dengan format yang lebih baik
 const saveHistory = (data) => {
   try {
     const currentTime = new Date().toLocaleTimeString('id-ID');
@@ -215,12 +151,12 @@ const saveHistory = (data) => {
 
     // Update Network history
     if (data.network && Array.isArray(data.network) && data.network.length > 0) {
-      const networkData = data.network[0]; // Mengambil interface pertama
+      const networkData = data.network[0];
       
       // Download history
       systemHistory.network.download.push({
         time: currentTime,
-        value: parseFloat(networkData.rx_sec) || 0,
+        value: parseFloat(networkData.rx_speed_raw) || 0,
         timestamp: Date.now()
       });
       if (systemHistory.network.download.length > MAX_HISTORY_LENGTH) {
@@ -230,7 +166,7 @@ const saveHistory = (data) => {
       // Upload history
       systemHistory.network.upload.push({
         time: currentTime,
-        value: parseFloat(networkData.tx_sec) || 0,
+        value: parseFloat(networkData.tx_speed_raw) || 0,
         timestamp: Date.now()
       });
       if (systemHistory.network.upload.length > MAX_HISTORY_LENGTH) {
@@ -240,9 +176,12 @@ const saveHistory = (data) => {
 
     systemHistory.timestamp = new Date().toISOString();
 
-    // Simpan ke file dengan penanganan error yang lebih baik
-    const historyString = JSON.stringify(systemHistory);
-    fs.writeFileSync(HISTORY_FILE, historyString);
+    // Simpan history ke file
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(systemHistory, null, 2));
+    
+    // Simpan statistik terakhir
+    lastStats = { ...data, timestamp: new Date().toISOString() };
+    saveStats(lastStats);
   } catch (error) {
     console.error('Error saving history:', error);
   }
@@ -404,6 +343,14 @@ app.get('/api/system-info', async (req, res) => {
   }
 });
 
+// Tambahkan route untuk mendapatkan data historis
+app.get('/api/history', (req, res) => {
+  res.json({
+    history: systemHistory,
+    lastStats: lastStats
+  });
+});
+
 // Error handling
 app.use((req, res) => {
   res.status(404).json({ 
@@ -440,11 +387,6 @@ io.on('connection', async (socket) => {
   };
   
   ACTIVE_CONNECTIONS.set(socket.id, connection);
-
-  // Kirim status website terkini ke client baru
-  if (websiteStatus.size > 0) {
-    socket.emit('websiteStatus', Array.from(websiteStatus.values()));
-  }
 
   // Handle ping dengan timeout yang lebih lama
   socket.on('ping', () => {
@@ -597,5 +539,4 @@ server.listen(PORT, () => {
   console.log(`Server berjalan pada port ${PORT}`);
   console.log(`Interval pembaruan: ${UPDATE_INTERVAL}ms`);
   console.log(`Cache duration: ${CACHE_DURATION}ms`);
-  startWebsiteMonitoring(io);
 }); 

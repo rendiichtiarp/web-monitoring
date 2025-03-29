@@ -2,19 +2,19 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ThemeProvider, useTheme } from 'next-themes';
 import { Toaster } from 'sonner';
 import io from 'socket.io-client';
+import { debounce } from 'lodash';
 import {
   XAxis, YAxis, Tooltip as RechartsTooltip,
   ResponsiveContainer, Area, AreaChart,
-  CartesianGrid
+  PieChart, Pie, Cell, CartesianGrid
 } from 'recharts';
 import {
   MonitorIcon, ServerIcon, CpuIcon, 
   HardDriveIcon, NetworkIcon, SunIcon, 
-  MoonIcon, TimerIcon, InfoIcon, MemoryStickIcon,
-  CheckCircleIcon, XCircleIcon
+  MoonIcon, TimerIcon, InfoIcon, MemoryStickIcon
 } from 'lucide-react';
 import { Button } from './components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './components/ui/card';
 import { Progress } from './components/ui/progress';
 
 const SOCKET_URL = window.location.protocol === 'https:' 
@@ -22,10 +22,17 @@ const SOCKET_URL = window.location.protocol === 'https:'
   : `http://${window.location.hostname}:5000`;
 
 // Constants
-const HISTORY_LENGTH = 20;
-const RECONNECT_INTERVAL = 5000;
+const HISTORY_LENGTH = 30;
+const CHART_UPDATE_INTERVAL = 3000;
+const RECONNECT_INTERVAL = 3000;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const PING_INTERVAL = 60000;
+const PING_INTERVAL = 10000;
+const CONNECTION_TIMEOUT = 30000;
+
+// Debounced update function
+const debouncedUpdate = debounce((callback) => {
+  callback();
+}, 300);
 
 // Format uptime function
 const formatUptime = (seconds) => {
@@ -56,11 +63,11 @@ const formatNetworkSpeed = (bitsPerSec) => {
 
 // Socket connection configuration
 const socketOptions = {
-  transports: ['websocket'],
+  transports: ['websocket', 'polling'],
   reconnectionAttempts: 5,
-  reconnectionDelay: 5000,
-  reconnectionDelayMax: 30000,
-  timeout: 20000,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 30000,
   path: '/socket.io/',
   autoConnect: false,
   withCredentials: true,
@@ -113,7 +120,41 @@ function App() {
   const [socketStatus, setSocketStatus] = useState('disconnected');
   const [mounted, setMounted] = useState(false);
   const [socket, setSocket] = useState(null);
-  const [websiteStatus, setWebsiteStatus] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const { theme, setTheme } = useTheme();
+
+  // Fungsi untuk memuat data historis
+  const loadHistoricalData = useCallback(async () => {
+    try {
+      const response = await fetch(`${SOCKET_URL}/api/history`);
+      const data = await response.json();
+      
+      if (data.history) {
+        setCpuHistory(data.history.cpu);
+        setMemoryHistory(data.history.memory);
+        setNetworkHistory({
+          download: data.history.network.download,
+          upload: data.history.network.upload
+        });
+      }
+
+      if (data.lastStats) {
+        setSystemInfo(data.lastStats);
+        setLastUpdate(data.lastStats.timestamp);
+      }
+    } catch (err) {
+      console.error('Error loading historical data:', err);
+      setError('Gagal memuat data historis');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Effect untuk memuat data historis saat komponen dimount
+  useEffect(() => {
+    loadHistoricalData();
+  }, [loadHistoricalData]);
 
   // Format time function
   const formatTime = useCallback((date) => {
@@ -174,6 +215,26 @@ function App() {
     setCpuHistory(prev => updateHistory(prev, cpuValue, timestamp));
     setMemoryHistory(prev => updateHistory(prev, memoryValue, timestamp));
   }, [formatTime, updateHistory]);
+
+  // Check for significant changes
+  const hasSignificantChanges = useCallback((newData, oldData) => {
+    if (!oldData) return true;
+    
+    const cpuDiff = Math.abs(parseFloat(newData.cpu.load) - parseFloat(oldData.cpu.load));
+    if (cpuDiff >= 0.1) return true;
+    
+    const memDiff = Math.abs(parseFloat(newData.memory.usedPercent) - parseFloat(oldData.memory.usedPercent));
+    if (memDiff >= 1) return true;
+    
+    const diskChanged = newData.disk.some((newDisk, index) => {
+      const oldDisk = oldData.disk[index];
+      if (!oldDisk) return true;
+      return Math.abs(parseFloat(newDisk.usedPercent) - parseFloat(oldDisk.usedPercent)) >= 1;
+    });
+    if (diskChanged) return true;
+    
+    return false;
+  }, []);
 
   // Socket connection effect
   useEffect(() => {
@@ -268,10 +329,6 @@ function App() {
             console.error('Error updating system data:', err);
           }
         });
-
-        newSocket.on('websiteStatus', (data) => {
-          setWebsiteStatus(data);
-        });
       } catch (err) {
         console.error('Error in connectSocket:', err);
         setError(`Error koneksi: ${err.message}`);
@@ -290,208 +347,35 @@ function App() {
         socket.disconnect();
       }
     };
-  }, [reconnectAttempts, socket, updateSystemData]);
+  }, []);
 
   // Tambahkan useEffect untuk mengatasi hydration
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Tambahkan useMemo untuk optimasi performa chart
-  const memoizedChartComponents = useMemo(() => ({
-    cpuChart: (
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={cpuHistory.filter(item => item.time !== '')}>
-          <defs>
-            <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
-            </linearGradient>
-          </defs>
-          <CartesianGrid 
-            strokeDasharray="3 3" 
-            vertical={false}
-            stroke="hsl(var(--muted))"
-          />
-          <XAxis 
-            dataKey="time" 
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={10}
-            tickLine={false}
-            axisLine={false}
-          />
-          <YAxis
-            domain={[0, 100]}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={10}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(value) => `${value}%`}
-            width={35}
-          />
-          <RechartsTooltip
-            content={({ active, payload, label }) => {
-              if (active && payload && payload.length) {
-                return (
-                  <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
-                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                    <p className="text-sm font-semibold text-primary">
-                      {payload[0].value.toFixed(1)}%
-                    </p>
-                  </div>
-                );
-              }
-              return null;
-            }}
-          />
-          <Area
-            type="monotone"
-            dataKey="value"
-            stroke="hsl(var(--primary))"
-            strokeWidth={2}
-            fillOpacity={1}
-            fill="url(#colorCpu)"
-            isAnimationActive={false}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
-    ),
-    memoryChart: (
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={memoryHistory.filter(item => item.time !== '')}>
-          <defs>
-            <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
-            </linearGradient>
-          </defs>
-          <CartesianGrid 
-            strokeDasharray="3 3" 
-            vertical={false}
-            stroke="hsl(var(--muted))"
-          />
-          <XAxis 
-            dataKey="time" 
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={10}
-            tickLine={false}
-            axisLine={false}
-          />
-          <YAxis
-            domain={[0, 100]}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={10}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(value) => `${value}%`}
-            width={35}
-          />
-          <RechartsTooltip
-            content={({ active, payload, label }) => {
-              if (active && payload && payload.length) {
-                return (
-                  <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
-                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                    <p className="text-sm font-semibold text-primary">
-                      {payload[0].value.toFixed(1)}%
-                    </p>
-                  </div>
-                );
-              }
-              return null;
-            }}
-          />
-          <Area
-            type="monotone"
-            dataKey="value"
-            stroke="hsl(var(--primary))"
-            strokeWidth={2}
-            fillOpacity={1}
-            fill="url(#colorMemory)"
-            isAnimationActive={false}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
-    ),
-    networkUploadChart: (
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={networkHistory.upload.filter(item => item.time !== '')}>
-          <defs>
-            <linearGradient id="colorUpload" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))"/>
-          <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false}/>
-          <YAxis 
-            stroke="hsl(var(--muted-foreground))" 
-            fontSize={10} 
-            tickLine={false} 
-            axisLine={false} 
-            tickFormatter={(value) => formatNetworkSpeed(value)}
-            width={80}
-          />
-          <RechartsTooltip
-            content={({ active, payload, label }) => {
-              if (active && payload && payload.length) {
-                return (
-                  <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
-                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                    <p className="text-sm font-semibold text-sky-500">
-                      {formatNetworkSpeed(payload[0].value)}
-                    </p>
-                  </div>
-                );
-              }
-              return null;
-            }}
-          />
-          <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorUpload)" isAnimationActive={false}/>
-        </AreaChart>
-      </ResponsiveContainer>
-    ),
-    networkDownloadChart: (
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={networkHistory.download.filter(item => item.time !== '')}>
-          <defs>
-            <linearGradient id="colorDownload" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))"/>
-          <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false}/>
-          <YAxis 
-            stroke="hsl(var(--muted-foreground))" 
-            fontSize={10} 
-            tickLine={false} 
-            axisLine={false} 
-            tickFormatter={(value) => formatNetworkSpeed(value)}
-            width={80}
-          />
-          <RechartsTooltip
-            content={({ active, payload, label }) => {
-              if (active && payload && payload.length) {
-                return (
-                  <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
-                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                    <p className="text-sm font-semibold text-emerald-500">
-                      {formatNetworkSpeed(payload[0].value)}
-                    </p>
-                  </div>
-                );
-              }
-              return null;
-            }}
-          />
-          <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorDownload)" isAnimationActive={false}/>
-        </AreaChart>
-      </ResponsiveContainer>
-    )
-  }), [cpuHistory, memoryHistory, networkHistory]);
-
   // Loading state
+  if (isLoading) {
+    return (
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <div className="min-h-screen bg-background">
+          <div className="container mx-auto px-4 py-8">
+            <div className="flex flex-col items-center justify-center space-y-4">
+              <MonitorIcon className="h-12 w-12 text-primary animate-pulse" />
+              <h1 className="text-2xl font-bold text-center">
+                Memuat Data Historis
+              </h1>
+              <p className="text-muted-foreground text-center">
+                Mohon tunggu sebentar...
+              </p>
+              <Progress value={100} className="w-full max-w-md animate-pulse" />
+            </div>
+          </div>
+        </div>
+      </ThemeProvider>
+    );
+  }
+
   if (!isConnected || !systemInfo) {
     return (
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
@@ -529,33 +413,48 @@ function App() {
 
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-      <div className="min-h-screen bg-background transition-colors duration-300">
-        <div className="container mx-auto p-4">
-          {/* Header dengan Theme Switcher */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 space-y-4 md:space-y-0">
-            <div className="w-full">
-              <div className="flex items-center justify-between">
-                <h1 className="text-3xl font-bold">Dashboard Monitoring Server</h1>
-                <ThemeSwitcher />
-              </div>
-              <div className="flex flex-col md:flex-row items-start md:items-center space-y-2 md:space-y-0 md:space-x-4 mt-2">
-                <div className="flex items-center space-x-2">
-                  <ServerIcon className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    {systemInfo?.os?.hostname || 'Loading...'}
-                  </span>
+      <div className="min-h-screen bg-background transition-colors duration-300 flex flex-col">
+        <div className="container mx-auto p-4 flex-grow">
+          {/* Header dengan Theme Switcher yang Ditingkatkan */}
+          <div className="bg-card rounded-lg shadow-lg p-6 mb-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0">
+              <div className="w-full">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <MonitorIcon className="h-8 w-8 text-primary animate-pulse" />
+                    <div>
+                      <h1 className="text-3xl font-bold bg-gradient-to-r from-primary via-blue-500 to-purple-500 bg-clip-text text-transparent">
+                        RexbotX Monitoring
+                      </h1>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Powered by Rendiichtiar
+                      </p>
+                    </div>
+                  </div>
+                  <ThemeSwitcher />
                 </div>
-                <div className="flex items-center space-x-2">
-                  <InfoIcon className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    {systemInfo?.os ? `${systemInfo.os.distro || ''} ${systemInfo.os.release || ''}` : 'Loading...'}
-                  </span>
+                <div className="flex flex-col md:flex-row items-start md:items-center space-y-2 md:space-y-0 md:space-x-6 mt-2 border-t pt-4 border-border/50">
+                  <div className="flex items-center space-x-2">
+                    <ServerIcon className="h-4 w-4 text-primary" />
+                    <span className="text-sm">
+                      {systemInfo?.os?.hostname || 'Loading...'}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <InfoIcon className="h-4 w-4 text-primary" />
+                    <span className="text-sm">
+                      {systemInfo?.os ? `${systemInfo.os.distro || ''} ${systemInfo.os.release || ''}` : 'Loading...'}
+                    </span>
+                  </div>
+                  {lastUpdate && (
+                    <div className="flex items-center space-x-2">
+                      <TimerIcon className="h-4 w-4 text-primary" />
+                      <span className="text-sm">
+                        Update: {formatTime(lastUpdate)}
+                      </span>
+                    </div>
+                  )}
                 </div>
-                {lastUpdate && (
-                  <span className="text-xs text-muted-foreground">
-                    Pembaruan terakhir: {formatTime(lastUpdate)}
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -595,60 +494,6 @@ function App() {
             </CardContent>
           </Card>
 
-          {/* Website Uptime Monitoring Card */}
-          <Card className="mb-6">
-            <CardHeader className="p-4">
-              <CardTitle className="flex items-center space-x-2 text-lg">
-                <MonitorIcon className="h-4 w-4" />
-                <span>Website Uptime Monitoring</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 pt-0">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {websiteStatus.map((site, index) => (
-                  <div
-                    key={index}
-                    className="p-4 rounded-lg border bg-card shadow-sm"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-semibold">{site.name}</h3>
-                      {site.online ? (
-                        <CheckCircleIcon className="h-5 w-5 text-green-500" />
-                      ) : (
-                        <XCircleIcon className="h-5 w-5 text-red-500" />
-                      )}
-                    </div>
-                    <div className="text-sm text-muted-foreground mb-2">
-                      {site.url}
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <div className={`px-2 py-1 rounded-full text-xs ${
-                        site.online 
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
-                          : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'
-                      }`}>
-                        {site.online ? 'Online' : 'Offline'}
-                      </div>
-                      {site.online && (
-                        <div className="text-xs text-muted-foreground">
-                          Response: {site.responseTime}ms
-                        </div>
-                      )}
-                    </div>
-                    {!site.online && site.error && (
-                      <div className="mt-2 text-xs text-red-500">
-                        Error: {site.error}
-                      </div>
-                    )}
-                    <div className="text-xs text-muted-foreground mt-2">
-                      Last checked: {new Date(site.timestamp).toLocaleTimeString()}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Main Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* CPU Card - Full Width */}
@@ -671,7 +516,61 @@ function App() {
                     <Progress value={parseFloat(systemInfo.cpu.load)} className="h-2" />
                   </div>
                   <div className="h-[180px]">
-                    {memoizedChartComponents.cpuChart}
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={cpuHistory.filter(item => item.time !== '')}>
+                        <defs>
+                          <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid 
+                          strokeDasharray="3 3" 
+                          vertical={false}
+                          stroke="hsl(var(--muted))"
+                        />
+                        <XAxis 
+                          dataKey="time" 
+                          stroke="hsl(var(--muted-foreground))"
+                          fontSize={10}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          stroke="hsl(var(--muted-foreground))"
+                          fontSize={10}
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(value) => `${value}%`}
+                          width={35}
+                        />
+                        <RechartsTooltip
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                                  <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                                  <p className="text-sm font-semibold text-primary">
+                                    {payload[0].value.toFixed(1)}%
+                                  </p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          stroke="hsl(var(--primary))"
+                          strokeWidth={2}
+                          fillOpacity={1}
+                          fill="url(#colorCpu)"
+                          isAnimationActive={false}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
               </CardContent>
@@ -697,7 +596,61 @@ function App() {
                     <Progress value={parseFloat(systemInfo.memory.usedPercent)} className="h-2" />
                   </div>
                   <div className="h-[180px]">
-                    {memoizedChartComponents.memoryChart}
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={memoryHistory.filter(item => item.time !== '')}>
+                        <defs>
+                          <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid 
+                          strokeDasharray="3 3" 
+                          vertical={false}
+                          stroke="hsl(var(--muted))"
+                        />
+                        <XAxis 
+                          dataKey="time" 
+                          stroke="hsl(var(--muted-foreground))"
+                          fontSize={10}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          stroke="hsl(var(--muted-foreground))"
+                          fontSize={10}
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(value) => `${value}%`}
+                          width={35}
+                        />
+                        <RechartsTooltip
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                                  <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                                  <p className="text-sm font-semibold text-primary">
+                                    {payload[0].value.toFixed(1)}%
+                                  </p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          stroke="hsl(var(--primary))"
+                          strokeWidth={2}
+                          fillOpacity={1}
+                          fill="url(#colorMemory)"
+                          isAnimationActive={false}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
               </CardContent>
@@ -721,7 +674,42 @@ function App() {
                         <span className="text-xs text-muted-foreground">Upload</span>
                       </div>
                       <div className="h-[120px]">
-                        {memoizedChartComponents.networkUploadChart}
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={networkHistory.upload.filter(item => item.time !== '')}>
+                            <defs>
+                              <linearGradient id="colorUpload" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+                                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))"/>
+                            <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false}/>
+                            <YAxis 
+                              stroke="hsl(var(--muted-foreground))" 
+                              fontSize={10} 
+                              tickLine={false} 
+                              axisLine={false} 
+                              tickFormatter={(value) => formatNetworkSpeed(value)}
+                              width={80}
+                            />
+                            <RechartsTooltip
+                              content={({ active, payload, label }) => {
+                                if (active && payload && payload.length) {
+                                  return (
+                                    <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                                      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                                      <p className="text-sm font-semibold text-sky-500">
+                                        {formatNetworkSpeed(payload[0].value)}
+                                      </p>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              }}
+                            />
+                            <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorUpload)" isAnimationActive={false}/>
+                          </AreaChart>
+                        </ResponsiveContainer>
                       </div>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <div>
@@ -738,7 +726,42 @@ function App() {
                         <span className="text-xs text-muted-foreground">Download</span>
                       </div>
                       <div className="h-[120px]">
-                        {memoizedChartComponents.networkDownloadChart}
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={networkHistory.download.filter(item => item.time !== '')}>
+                            <defs>
+                              <linearGradient id="colorDownload" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+                                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))"/>
+                            <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false}/>
+                            <YAxis 
+                              stroke="hsl(var(--muted-foreground))" 
+                              fontSize={10} 
+                              tickLine={false} 
+                              axisLine={false} 
+                              tickFormatter={(value) => formatNetworkSpeed(value)}
+                              width={80}
+                            />
+                            <RechartsTooltip
+                              content={({ active, payload, label }) => {
+                                if (active && payload && payload.length) {
+                                  return (
+                                    <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                                      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                                      <p className="text-sm font-semibold text-emerald-500">
+                                        {formatNetworkSpeed(payload[0].value)}
+                                      </p>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              }}
+                            />
+                            <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorDownload)" isAnimationActive={false}/>
+                          </AreaChart>
+                        </ResponsiveContainer>
                       </div>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <div>
@@ -788,8 +811,61 @@ function App() {
             ))}
           </div>
         </div>
-        <Toaster />
+
+        {/* Footer Baru */}
+        <footer className="w-full bg-card shadow-lg mt-8">
+          <div className="container mx-auto px-4 py-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold flex items-center space-x-2">
+                  <MonitorIcon className="h-5 w-5 text-primary" />
+                  <span>RexbotX Monitor</span>
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Monitoring WhatsApp Bot performance and server resources in real-time
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold flex items-center space-x-2">
+                  <InfoIcon className="h-5 w-5 text-primary" />
+                  <span>Bot Info</span>
+                </h3>
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>Update Interval: {CHART_UPDATE_INTERVAL/1000}s</p>
+                  <p>History Length: {HISTORY_LENGTH} points</p>
+                  <p>Status: {socketStatus === 'connected' ? 'Bot Active' : 'Bot Inactive'}</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold flex items-center space-x-2">
+                  <ServerIcon className="h-5 w-5 text-primary" />
+                  <span>Server Info</span>
+                </h3>
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>Uptime: {formatUptime(systemInfo?.os?.uptime || 0)}</p>
+                  <p>CPU: {systemInfo?.cpu?.cores || 0} Cores</p>
+                  <p>RAM: {systemInfo?.memory?.total || 0}GB Total</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 pt-4 border-t border-border/50 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
+              <p className="text-sm text-muted-foreground">
+                © {new Date().getFullYear()} RexbotX by Rendiichtiar. All rights reserved.
+              </p>
+              <div className="flex items-center space-x-4">
+                <span className="text-sm text-muted-foreground flex items-center space-x-1">
+                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                  <span>{isConnected ? 'Bot Online' : 'Bot Offline'}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </footer>
       </div>
+      <Toaster />
     </ThemeProvider>
   );
 }
