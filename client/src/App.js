@@ -1,71 +1,43 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  Container, 
-  Grid, 
-  Typography, 
-  Box,
-  ThemeProvider,
-  createTheme,
-  CssBaseline,
-  IconButton,
-  Tooltip,
-  Card,
-  CardContent,
-  LinearProgress,
-  Chip,
-  Alert,
-  Divider
-} from '@mui/material';
-import { 
-  XAxis, 
-  YAxis,
-  Tooltip as RechartsTooltip, 
-  ResponsiveContainer,
-  Area,
-  AreaChart,
-  PieChart,
-  Pie,
-  Cell,
-  CartesianGrid
+import { ThemeProvider } from 'next-themes';
+import { Toaster } from 'sonner';
+import io from 'socket.io-client';
+import { debounce } from 'lodash';
+import {
+  XAxis, YAxis, Tooltip as RechartsTooltip,
+  ResponsiveContainer, Area, AreaChart,
+  PieChart, Pie, Cell, CartesianGrid
 } from 'recharts';
 import {
-  Brightness4,
-  Brightness7,
-  Memory,
-  Storage,
-  Speed,
-  NetworkCheck,
-  Computer,
-  Timer,
-  Info,
-  Memory as MemoryIcon
-} from '@mui/icons-material';
-import io from 'socket.io-client';
-import { debounce } from '@mui/material/utils';
+  MonitorIcon, ServerIcon, CpuIcon, 
+  HardDriveIcon, NetworkIcon, SunIcon, 
+  MoonIcon, TimerIcon, InfoIcon, MemoryStickIcon
+} from 'lucide-react';
 
-const SOCKET_URL = window.location.hostname;
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './components/ui/card';
+import { Progress } from './components/ui/progress';
+
+const SOCKET_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5000'
+  : `${window.location.protocol}//${window.location.hostname}:5000`;
 let socket;
 
-// Konstanta
-const HISTORY_LENGTH = 20;
+// Constants
+const HISTORY_LENGTH = 30;
 const CHART_UPDATE_INTERVAL = 3000;
-const RECONNECT_INTERVAL = 5000;
-const MAX_RECONNECT_ATTEMPTS = 3;
-const PING_INTERVAL = 25000;
-const CONNECTION_TIMEOUT = 45000;
+const RECONNECT_INTERVAL = 3000;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const PING_INTERVAL = 10000;
+const CONNECTION_TIMEOUT = 30000;
 
-// Fungsi debounce untuk update data
+// Debounced update function
 const debouncedUpdate = debounce((callback) => {
   callback();
 }, 300);
 
-// Fungsi untuk memformat uptime
+// Format uptime function
 const formatUptime = (seconds) => {
-  // Debug log
-  console.log('Formatting uptime:', seconds);
-  
   if (typeof seconds !== 'number' || isNaN(seconds) || seconds < 0) {
-    console.log('Invalid uptime value');
     return 'Calculating...';
   }
   
@@ -73,114 +45,43 @@ const formatUptime = (seconds) => {
   const hours = Math.floor((seconds % (3600 * 24)) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   
-  console.log('Calculated time:', { days, hours, minutes }); // Debug log
-  
   let result = [];
   if (days > 0) result.push(`${days} hari`);
   if (hours > 0) result.push(`${hours} jam`);
   if (minutes > 0 || (days === 0 && hours === 0)) result.push(`${minutes} menit`);
   
-  const formatted = result.length > 0 ? result.join(' ') : '1 menit';
-  console.log('Formatted uptime:', formatted); // Debug log
-  return formatted;
+  return result.length > 0 ? result.join(' ') : '1 menit';
+};
+
+// Socket connection configuration
+const socketOptions = {
+  transports: ['websocket', 'polling'],
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 30000,
+  path: '/socket.io/',
+  autoConnect: false,
+  withCredentials: true,
+  forceNew: true,
+  query: { t: Date.now() }
 };
 
 function App() {
   const [systemInfo, setSystemInfo] = useState(null);
-  const [cpuHistory, setCpuHistory] = useState(Array(20).fill({ time: '', value: 0 }));
-  const [memoryHistory, setMemoryHistory] = useState(Array(20).fill({ time: '', value: 0 }));
-  const [darkMode, setDarkMode] = useState(true);
+  const [cpuHistory, setCpuHistory] = useState(Array(60).fill({ time: '', value: 0 }));
+  const [memoryHistory, setMemoryHistory] = useState(Array(60).fill({ time: '', value: 0 }));
+  const [networkHistory, setNetworkHistory] = useState({
+    download: Array(60).fill({ time: '', value: 0 }),
+    upload: Array(60).fill({ time: '', value: 0 })
+  });
   const [error, setError] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [socketStatus, setSocketStatus] = useState('disconnected');
-  const [chartUpdateTimer, setChartUpdateTimer] = useState(null);
 
-  const theme = useMemo(() => createTheme({
-    palette: {
-      mode: darkMode ? 'dark' : 'light',
-      primary: {
-        main: '#2196f3',
-      },
-      secondary: {
-        main: '#f50057',
-      },
-      background: {
-        default: darkMode ? '#0a1929' : '#f5f5f5',
-        paper: darkMode ? '#1a2027' : '#ffffff',
-      },
-    },
-    typography: {
-      fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
-      h4: {
-        fontWeight: 600,
-        fontSize: {
-          xs: '1.25rem',
-          sm: '1.5rem',
-        },
-      },
-      h6: {
-        fontWeight: 500,
-        fontSize: '1rem',
-      },
-      subtitle1: {
-        fontSize: '0.875rem',
-      },
-      body1: {
-        fontSize: '0.875rem',
-      },
-      body2: {
-        fontSize: '0.75rem',
-      },
-    },
-    components: {
-      MuiCard: {
-        styleOverrides: {
-          root: {
-            borderRadius: 12,
-            transition: 'all 0.2s ease-in-out',
-            '&:hover': {
-              transform: 'translateY(-2px)',
-              boxShadow: darkMode 
-                ? '0 4px 12px rgba(0, 0, 0, 0.4)'
-                : '0 4px 12px rgba(0, 0, 0, 0.1)',
-            },
-          },
-        },
-      },
-      MuiCardContent: {
-        styleOverrides: {
-          root: {
-            padding: '16px',
-            '&:last-child': {
-              paddingBottom: '16px',
-            },
-          },
-        },
-      },
-      MuiContainer: {
-        styleOverrides: {
-          root: {
-            paddingBottom: '1rem',
-          },
-        },
-      },
-      MuiGrid: {
-        styleOverrides: {
-          root: {
-            '& > .MuiGrid-item': {
-              paddingTop: '12px',
-              paddingBottom: '12px',
-            },
-          },
-        },
-      },
-    },
-  }), [darkMode]);
-
-  // Optimized formatTime function
+  // Format time function
   const formatTime = useCallback((date) => {
     if (!date) return '';
     try {
@@ -195,701 +96,584 @@ function App() {
     }
   }, []);
 
-  // Optimized history update function
+  // Update history function
   const updateHistory = useCallback((currentHistory, newValue, timestamp) => {
-    if (!Array.isArray(currentHistory) || currentHistory.length !== HISTORY_LENGTH) {
+    if (!Array.isArray(currentHistory)) {
       return Array(HISTORY_LENGTH).fill({ time: '', value: 0 });
     }
-    return [...currentHistory.slice(1), { 
+    
+    // Hapus data yang lebih tua dari 1 jam
+    const oneHourAgo = Date.now() - 3600000;
+    const filteredHistory = currentHistory.filter(item => 
+      item.timestamp && new Date(item.timestamp).getTime() > oneHourAgo
+    );
+    
+    return [...filteredHistory, { 
       time: timestamp,
-      value: typeof newValue === 'number' ? Math.min(Math.max(newValue, 0), 100) : 0
-    }];
+      value: typeof newValue === 'number' ? newValue : 0,
+      timestamp: Date.now()
+    }].slice(-HISTORY_LENGTH);
   }, []);
 
-  // Optimasi update data sistem
+  // System data update function
   const updateSystemData = useCallback((data) => {
     if (!data) return;
 
-    debouncedUpdate(() => {
-      setSystemInfo(prev => {
-        // Jika tidak ada perubahan signifikan, gunakan data sebelumnya
-        if (prev && !hasSignificantChanges(data, prev)) {
-          return prev;
-        }
-        return data;
-      });
-      
-      const timestamp = formatTime(data.timestamp);
-      const cpuValue = parseFloat(data.cpu.load) || 0;
-      const memoryValue = parseFloat(data.memory.usedPercent) || 0;
+    setSystemInfo(data);
+    
+    const timestamp = formatTime(data.timestamp);
+    const cpuValue = parseFloat(data.cpu.load) || 0;
+    const memoryValue = parseFloat(data.memory.usedPercent) || 0;
 
-      setLastUpdate(data.timestamp);
-      setError(null);
+    // Update network history jika ada data network
+    if (data.network && data.network.length > 0) {
+      const networkData = data.network[0];
+      setNetworkHistory(prev => ({
+        download: updateHistory(prev.download, parseFloat(networkData.rx_sec), timestamp),
+        upload: updateHistory(prev.upload, parseFloat(networkData.tx_sec), timestamp)
+      }));
+    }
 
-      // Update histories dengan debounce
-      if (!chartUpdateTimer) {
-        const timer = setTimeout(() => {
-          setCpuHistory(prev => updateHistory(prev, cpuValue, timestamp));
-          setMemoryHistory(prev => updateHistory(prev, memoryValue, timestamp));
-          setChartUpdateTimer(null);
-        }, CHART_UPDATE_INTERVAL);
-        setChartUpdateTimer(timer);
-      }
-    });
-  }, [formatTime, updateHistory, chartUpdateTimer]);
+    setLastUpdate(data.timestamp);
+    setError(null);
 
-  // Fungsi untuk memeriksa perubahan signifikan
+    setCpuHistory(prev => updateHistory(prev, cpuValue, timestamp));
+    setMemoryHistory(prev => updateHistory(prev, memoryValue, timestamp));
+  }, [formatTime, updateHistory]);
+
+  // Check for significant changes
   const hasSignificantChanges = useCallback((newData, oldData) => {
     if (!oldData) return true;
     
-    // Periksa perubahan CPU
     const cpuDiff = Math.abs(parseFloat(newData.cpu.load) - parseFloat(oldData.cpu.load));
-    if (cpuDiff >= 1) return true;
+    if (cpuDiff >= 0.1) return true;
     
-    // Periksa perubahan Memory
     const memDiff = Math.abs(parseFloat(newData.memory.usedPercent) - parseFloat(oldData.memory.usedPercent));
     if (memDiff >= 1) return true;
+    
+    const diskChanged = newData.disk.some((newDisk, index) => {
+      const oldDisk = oldData.disk[index];
+      if (!oldDisk) return true;
+      return Math.abs(parseFloat(newDisk.usedPercent) - parseFloat(oldDisk.usedPercent)) >= 1;
+    });
+    if (diskChanged) return true;
     
     return false;
   }, []);
 
-  // Socket connection management
+  // Socket connection effect
   useEffect(() => {
     let reconnectTimer;
     let pingInterval;
-    let connectionTimeout;
     let isManuallyDisconnected = false;
 
-    const resetConnectionTimeout = () => {
-      if (connectionTimeout) {
-        clearTimeout(connectionTimeout);
-      }
-      connectionTimeout = setTimeout(() => {
-        console.log('Connection timeout, attempting to reconnect...');
-        if (socket && !isManuallyDisconnected) {
-          socket.disconnect();
-          connectSocket();
-        }
-      }, CONNECTION_TIMEOUT);
-    };
-
-    const setupPingInterval = () => {
-      if (pingInterval) {
-        clearInterval(pingInterval);
-      }
-      pingInterval = setInterval(() => {
-        if (socket && socket.connected) {
-          socket.emit('ping');
-          resetConnectionTimeout();
-        }
-      }, PING_INTERVAL);
-    };
-
     const connectSocket = () => {
-      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        setError('Batas maksimum percobaan koneksi tercapai. Silakan muat ulang halaman.');
-        isManuallyDisconnected = true;
-        return;
-      }
-
-      if (socket) {
-        socket.removeAllListeners();
-        socket.close();
-      }
-
-      setSocketStatus('connecting');
-      console.log('Mencoba menghubungkan ke server...');
-      
-      socket = io(SOCKET_URL, {
-        reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-        reconnectionDelay: RECONNECT_INTERVAL,
-        transports: ['websocket'],
-        timeout: CONNECTION_TIMEOUT,
-        withCredentials: true,
-        forceNew: true,
-        reconnection: false,
-        autoConnect: true
-      });
-
-      socket.on('connect', () => {
-        console.log('Terhubung ke server');
-        setIsConnected(true);
-        setSocketStatus('connected');
-        setError(null);
-        setReconnectAttempts(0);
-        setupPingInterval();
-        resetConnectionTimeout();
-        isManuallyDisconnected = false;
-      });
-
-      socket.on('connect_error', (error) => {
-        console.error('Kesalahan koneksi:', error);
-        setSocketStatus('error');
-        setError(`Gagal terhubung ke server: ${error.message}`);
-        setReconnectAttempts(prev => prev + 1);
-        
-        if (!isManuallyDisconnected && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-          if (reconnectTimer) clearTimeout(reconnectTimer);
-          reconnectTimer = setTimeout(connectSocket, RECONNECT_INTERVAL);
+      try {
+        if (socket?.connected) {
+          socket.disconnect();
         }
-      });
 
-      socket.on('disconnect', (reason) => {
-        console.log('Terputus dari server:', reason);
-        setIsConnected(false);
-        setSocketStatus('disconnected');
-        setError(`Koneksi terputus (${reason})`);
+        setSocketStatus('connecting');
+        console.log('Mencoba koneksi ke:', SOCKET_URL);
         
-        if (!isManuallyDisconnected && ['transport error', 'ping timeout'].includes(reason)) {
-          if (reconnectTimer) clearTimeout(reconnectTimer);
-          reconnectTimer = setTimeout(() => {
-            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-              connectSocket();
+        socket = io(SOCKET_URL, {
+          ...socketOptions,
+          query: { t: Date.now() }
+        });
+
+        socket.connect();
+
+        socket.io.on("error", (error) => {
+          console.error('Transport error:', error);
+          setError(`Error koneksi: ${error.message}`);
+          setSocketStatus('error');
+          
+          if (!isManuallyDisconnected && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            const delay = Math.min(1000 * (reconnectAttempts + 1), 5000);
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(connectSocket, delay);
+          }
+        });
+
+        socket.on('connect_error', (error) => {
+          console.error('Connection error:', error);
+          setError(`Error koneksi: ${error.message}`);
+          setSocketStatus('error');
+
+          if (!isManuallyDisconnected && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            setReconnectAttempts(prev => prev + 1);
+            const delay = Math.min(1000 * (reconnectAttempts + 1), 5000);
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(connectSocket, delay);
+          }
+        });
+
+        socket.on('connect', () => {
+          console.log('Socket terhubung');
+          setIsConnected(true);
+          setSocketStatus('connected');
+          setError(null);
+          setReconnectAttempts(0);
+
+          // Set up ping interval
+          if (pingInterval) clearInterval(pingInterval);
+          pingInterval = setInterval(() => {
+            if (socket?.connected) {
+              socket.emit('ping');
             }
-          }, RECONNECT_INTERVAL);
-        }
-      });
+          }, PING_INTERVAL);
+        });
 
-      socket.on('error', (error) => {
-        console.error('Socket error:', error);
-        setError(error.message);
-      });
+        socket.on('disconnect', (reason) => {
+          console.log('Socket terputus:', reason);
+          setIsConnected(false);
+          setSocketStatus('disconnected');
+          
+          if (pingInterval) {
+            clearInterval(pingInterval);
+            pingInterval = null;
+          }
 
-      socket.on('pong', () => {
-        setError(null);
-        resetConnectionTimeout();
-      });
+          if (!isManuallyDisconnected && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            setReconnectAttempts(prev => prev + 1);
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(connectSocket, RECONNECT_INTERVAL);
+          }
+        });
 
-      socket.on('systemInfo', updateSystemData);
+        socket.on('pong', () => {
+          setError(null);
+        });
+
+        socket.on('systemInfo', (data) => {
+          if (!data) return;
+          try {
+            updateSystemData(data);
+          } catch (err) {
+            console.error('Error updating system data:', err);
+          }
+        });
+      } catch (err) {
+        console.error('Error in connectSocket:', err);
+        setError(`Error koneksi: ${err.message}`);
+        setSocketStatus('error');
+      }
     };
 
     connectSocket();
 
-    // Cleanup function
     return () => {
       isManuallyDisconnected = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (pingInterval) clearInterval(pingInterval);
       if (socket) {
         socket.removeAllListeners();
-        socket.close();
-      }
-      if (chartUpdateTimer) {
-        clearTimeout(chartUpdateTimer);
-      }
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
-      if (pingInterval) {
-        clearInterval(pingInterval);
-      }
-      if (connectionTimeout) {
-        clearTimeout(connectionTimeout);
+        socket.disconnect();
       }
     };
-  }, [updateSystemData]);
+  }, []);
 
-  const MetricCard = ({ title, value, unit, icon, color }) => (
-    <Card sx={{ 
-      height: '100%',
-      minHeight: '120px',
-      transition: 'all 0.3s ease-in-out',
-    }}>
-      <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <Box display="flex" alignItems="center" mb={1}>
-          {React.cloneElement(icon, { sx: { fontSize: '1.25rem' } })}
-          <Typography variant="subtitle1" ml={1} fontWeight="500">
-            {title}
-          </Typography>
-        </Box>
-        <Box flex={1} display="flex" flexDirection="column" justifyContent="center">
-          <Typography variant="h4" color={color} mb={1} align="center">
-            {value}{unit}
-          </Typography>
-          <LinearProgress 
-            variant="determinate" 
-            value={parseFloat(value)} 
-            sx={{ 
-              height: 6,
-              borderRadius: 3,
-              backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-              '& .MuiLinearProgress-bar': {
-                backgroundColor: color,
-                transition: 'transform 0.3s ease-in-out'
-              }
-            }}
-          />
-        </Box>
-      </CardContent>
-    </Card>
-  );
-
-  const DetailedMetricCard = ({ title, value, total, used, free, usedPercent, icon, color, chartData }) => (
-    <Card sx={{ 
-      height: '100%',
-      transition: 'all 0.3s ease-in-out',
-    }}>
-      <CardContent>
-        <Box display="flex" alignItems="center" mb={2}>
-          {React.cloneElement(icon, { sx: { fontSize: '1.25rem' } })}
-          <Typography variant="subtitle1" ml={1} fontWeight="500">
-            {title}
-          </Typography>
-        </Box>
-        
-        <Grid container spacing={2} alignItems="center">
-          <Grid item xs={7}>
-            <Box mb={1.5}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Penggunaan
-              </Typography>
-              <Typography variant="h4" color={color} sx={{ fontSize: '1.75rem' }}>
-                {parseFloat(usedPercent).toFixed(1)}%
-              </Typography>
-              <LinearProgress 
-                variant="determinate" 
-                value={parseFloat(usedPercent)} 
-                sx={{ 
-                  mt: 1,
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                  '& .MuiLinearProgress-bar': {
-                    backgroundColor: color,
-                  }
-                }}
-              />
-            </Box>
-
-            <Grid container spacing={1}>
-              <Grid item xs={6}>
-                <Typography variant="body2" color="text.secondary">
-                  Total
-                </Typography>
-                <Typography variant="body1" fontWeight="500">
-                  {typeof total === 'number' ? total.toFixed(1) : total} {title !== 'CPU' && 'GB'}
-                </Typography>
-              </Grid>
-              <Grid item xs={6}>
-                <Typography variant="body2" color="text.secondary">
-                  Tersedia
-                </Typography>
-                <Typography variant="body1" fontWeight="500" color="success.main">
-                  {typeof free === 'number' ? free.toFixed(1) : free} {title !== 'CPU' && 'GB'}
-                </Typography>
-              </Grid>
-            </Grid>
-          </Grid>
-
-          <Grid item xs={5}>
-            <Box height={120} position="relative">
-              <ResponsiveContainer>
-                <PieChart>
-                  <Pie
-                    data={[
-                      { name: 'Digunakan', value: parseFloat(used) || 0 },
-                      { name: 'Kosong', value: parseFloat(free) || 0 }
-                    ]}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={25}
-                    outerRadius={40}
-                    paddingAngle={2}
-                    dataKey="value"
-                    isAnimationActive={false}
-                    startAngle={90}
-                    endAngle={-270}
-                  >
-                    <Cell fill={color} />
-                    <Cell fill={darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'} />
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <Box
-                position="absolute"
-                top="50%"
-                left="50%"
-                sx={{
-                  transform: 'translate(-50%, -50%)',
-                  textAlign: 'center'
-                }}
-              >
-                <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                  Digunakan
-                </Typography>
-                <Typography variant="body2" fontWeight="bold">
-                  {typeof used === 'number' ? used.toFixed(1) : used} {title !== 'CPU' && 'GB'}
-                </Typography>
-              </Box>
-            </Box>
-          </Grid>
-        </Grid>
-
-        <Divider sx={{ my: 1.5 }} />
-
-        <Box height={120}>
-          <ResponsiveContainer>
-            <AreaChart 
-              data={chartData.filter(item => item.time !== '')}
-              margin={{ top: 5, right: 0, bottom: 0, left: 0 }}
-            >
-              <defs>
-                <linearGradient id={`color${title}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={color} stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor={color} stopOpacity={0.1}/>
-                </linearGradient>
-                <filter id="shadow" height="200%">
-                  <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor={color} floodOpacity="0.2"/>
-                </filter>
-              </defs>
-              <CartesianGrid 
-                strokeDasharray="3 3" 
-                vertical={false}
-                stroke={darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}
-              />
-              <XAxis 
-                dataKey="time" 
-                stroke={darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                tick={{ fontSize: 10 }}
-                interval="preserveStartEnd"
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis 
-                domain={[0, 100]}
-                stroke={darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                tick={{ fontSize: 10 }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(value) => `${value}%`}
-                width={25}
-              />
-              <RechartsTooltip
-                contentStyle={{
-                  backgroundColor: darkMode ? 'rgba(26, 32, 39, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-                  border: 'none',
-                  borderRadius: 6,
-                  boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-                  padding: '6px 8px'
-                }}
-                formatter={(value) => [`${value.toFixed(1)}%`, title]}
-                labelStyle={{
-                  color: darkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)',
-                  fontSize: '10px',
-                  marginBottom: '2px'
-                }}
-                itemStyle={{
-                  color: color,
-                  fontSize: '12px',
-                  fontWeight: '500'
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke={color}
-                strokeWidth={2}
-                fillOpacity={1}
-                fill={`url(#color${title})`}
-                isAnimationActive={false}
-                dot={false}
-                activeDot={{
-                  r: 3,
-                  strokeWidth: 2,
-                  stroke: color,
-                  fill: darkMode ? '#1a2027' : '#fff',
-                  filter: 'url(#shadow)'
-                }}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Box>
-      </CardContent>
-    </Card>
-  );
-
-  // Komponen untuk statistik sistem yang lebih compact
-  const SystemStatsCard = ({ systemInfo }) => {
-    // Debug log
-    console.log('SystemInfo in SystemStatsCard:', systemInfo);
-    
-    const uptimeValue = systemInfo?.uptime;
-    console.log('Uptime value:', uptimeValue); // Debug log
-    
-    const formattedUptime = React.useMemo(() => {
-      const result = formatUptime(uptimeValue);
-      console.log('Formatted uptime result:', result); // Debug log
-      return result;
-    }, [uptimeValue]);
-
-    return (
-      <Card sx={{ mb: 4 }}>
-        <CardContent>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={4}>
-              <Box display="flex" alignItems="center" mb={1}>
-                <Timer sx={{ fontSize: '1.25rem', color: 'info.main' }} />
-                <Typography variant="subtitle1" ml={1} fontWeight="500">
-                  Uptime Server
-                </Typography>
-              </Box>
-              <Typography variant="body1" color="text.secondary">
-                {formattedUptime}
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12} md={4}>
-              <Box display="flex" alignItems="center" mb={1}>
-                <MemoryIcon sx={{ fontSize: '1.25rem', color: 'info.main' }} />
-                <Typography variant="subtitle1" ml={1} fontWeight="500">
-                  Informasi CPU
-                </Typography>
-              </Box>
-              <Box display="flex" gap={2}>
-                <Typography variant="body1" color="text.secondary">
-                  Core: {systemInfo.cpu.cores.length}
-                </Typography>
-                <Typography variant="body1" color="text.secondary">
-                  Load: {systemInfo.cpu.load}%
-                </Typography>
-              </Box>
-            </Grid>
-
-            <Grid item xs={12} md={4}>
-              <Box display="flex" alignItems="center" mb={1}>
-                <Info sx={{ fontSize: '1.25rem', color: 'info.main' }} />
-                <Typography variant="subtitle1" ml={1} fontWeight="500">
-                  Informasi Sistem
-                </Typography>
-              </Box>
-              <Box display="flex" flexDirection="column" gap={0.5}>
-                <Typography variant="body1" color="text.secondary" noWrap>
-                  {systemInfo.os.distro} {systemInfo.os.release}
-                </Typography>
-                <Typography variant="body1" color="text.secondary">
-                  {systemInfo.os.platform === 'win32' ? 'Windows' : systemInfo.os.platform}
-                </Typography>
-              </Box>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
-    );
-  };
-
-  // Optimized loading state
+  // Loading state
   if (!isConnected || !systemInfo) {
     return (
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <Container>
-          <Box sx={{ 
-            mt: 4, 
-            textAlign: 'center',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 2
-          }}>
-            <Typography variant="h4" gutterBottom>
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex flex-col items-center justify-center space-y-4">
+            <MonitorIcon className="h-12 w-12 text-primary animate-pulse" />
+            <h1 className="text-2xl font-bold text-center">
               {socketStatus === 'connecting' ? 'Menghubungkan ke Server' : 
                socketStatus === 'disconnected' ? 'Terputus dari Server' :
                'Memuat Informasi Sistem'}
-            </Typography>
-            <Typography variant="body1" color="text.secondary" gutterBottom>
+            </h1>
+            <p className="text-muted-foreground text-center">
               {socketStatus === 'connecting' ? 'Mohon tunggu sebentar...' :
                socketStatus === 'disconnected' ? 'Mencoba menghubungkan kembali...' :
                'Sedang mengambil data sistem...'}
-            </Typography>
-            <Box sx={{ width: '100%', maxWidth: 400 }}>
-              <LinearProgress 
-                sx={{ 
-                  height: 10, 
-                  borderRadius: 5,
-                  backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                }} 
-              />
-            </Box>
+            </p>
+            <Progress value={reconnectAttempts / MAX_RECONNECT_ATTEMPTS * 100} className="w-full max-w-md" />
             {error && (
-              <Alert 
-                severity="error" 
-                sx={{ 
-                  mt: 2, 
-                  width: '100%', 
-                  maxWidth: 400,
-                  '& .MuiAlert-message': {
-                    width: '100%'
-                  }
-                }}
-              >
-                {error}
+              <div className="bg-destructive/10 text-destructive p-4 rounded-lg max-w-md w-full">
+                <p className="text-sm">{error}</p>
                 {reconnectAttempts > 0 && (
-                  <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+                  <p className="text-xs mt-2">
                     Percobaan koneksi: {reconnectAttempts}/{MAX_RECONNECT_ATTEMPTS}
-                  </Typography>
+                  </p>
                 )}
-              </Alert>
+              </div>
             )}
-          </Box>
-        </Container>
-      </ThemeProvider>
+          </div>
+        </div>
+      </div>
     );
   }
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Container maxWidth="xl">
-        <Box sx={{ mt: { xs: 2, sm: 4 }, px: { xs: 1, sm: 2 } }}>
-          <Box 
-            display="flex" 
-            flexDirection={{ xs: 'column', sm: 'row' }} 
-            justifyContent="space-between" 
-            alignItems={{ xs: 'flex-start', sm: 'center' }} 
-            mb={{ xs: 2, sm: 4 }}
-            gap={2}
-          >
-            <Box>
-              <Typography variant="h4" gutterBottom>
-                Dashboard Monitoring Server
-              </Typography>
-              <Box 
-                display="flex" 
-                flexDirection={{ xs: 'column', sm: 'row' }}
-                gap={1} 
-                alignItems={{ xs: 'flex-start', sm: 'center' }}
-              >
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Computer fontSize="small" />
-                  <Typography variant="subtitle1" color="text.secondary" noWrap>
-                    {systemInfo.os.hostname}
-                  </Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                  <Typography variant="subtitle1" color="text.secondary">
-                    {systemInfo.os.distro} {systemInfo.os.release}
-                  </Typography>
-                  <Chip 
-                    label={systemInfo.os.platform === 'win32' ? 'Windows' : systemInfo.os.platform} 
-                    size="small"
-                    color="primary"
-                  />
-                </Box>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto p-4">
+          {/* Header */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 space-y-4 md:space-y-0">
+            <div>
+              <h1 className="text-3xl font-bold">Dashboard Monitoring Server</h1>
+              <div className="flex flex-col md:flex-row items-start md:items-center space-y-2 md:space-y-0 md:space-x-4 mt-2">
+                <div className="flex items-center space-x-2">
+                  <ServerIcon className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    {systemInfo?.os?.hostname || 'Loading...'}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <InfoIcon className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    {systemInfo?.os ? `${systemInfo.os.distro || ''} ${systemInfo.os.release || ''}` : 'Loading...'}
+                  </span>
+                </div>
                 {lastUpdate && (
-                  <Typography 
-                    variant="caption" 
-                    color="text.secondary"
-                    sx={{ 
-                      display: 'block',
-                      mt: { xs: 1, sm: 0 }
-                    }}
-                  >
+                  <span className="text-xs text-muted-foreground">
                     Pembaruan terakhir: {formatTime(lastUpdate)}
-                  </Typography>
+                  </span>
                 )}
-              </Box>
-            </Box>
-            <Tooltip title={darkMode ? 'Mode Terang' : 'Mode Gelap'}>
-              <IconButton 
-                onClick={() => setDarkMode(!darkMode)} 
-                color="inherit"
-                sx={{
-                  position: { xs: 'absolute', sm: 'static' },
-                  right: { xs: 16, sm: 'auto' },
-                  top: { xs: 16, sm: 'auto' },
-                }}
-              >
-                {darkMode ? <Brightness7 /> : <Brightness4 />}
-              </IconButton>
-            </Tooltip>
-          </Box>
+              </div>
+            </div>
+          </div>
 
-          <SystemStatsCard systemInfo={systemInfo} />
+          {/* System Stats Card */}
+          <Card className="mb-6">
+            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <TimerIcon className="h-4 w-4 text-primary" />
+                  <h3 className="text-sm font-medium">Uptime Server</h3>
+                </div>
+                <p className="text-xl font-semibold">{formatUptime(systemInfo?.os?.uptime || 0)}</p>
+              </div>
 
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
-              <DetailedMetricCard 
-                title="CPU"
-                value={systemInfo.cpu.load}
-                total={100}
-                used={parseFloat(systemInfo.cpu.load)}
-                free={100 - parseFloat(systemInfo.cpu.load)}
-                usedPercent={systemInfo.cpu.load}
-                icon={<Speed color="primary" />}
-                color="#2196f3"
-                chartData={cpuHistory}
-              />
-            </Grid>
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <CpuIcon className="h-4 w-4 text-primary" />
+                  <h3 className="text-sm font-medium">Informasi CPU</h3>
+                </div>
+                <div className="flex space-x-4">
+                  <p className="text-xl font-semibold">Core: {systemInfo?.cpu?.cores || 0}</p>
+                  <p className="text-xl font-semibold">Load: {systemInfo?.cpu?.load || 0}%</p>
+                </div>
+              </div>
 
-            <Grid item xs={12} md={6}>
-              <DetailedMetricCard 
-                title="Memory"
-                value={systemInfo.memory.usedPercent}
-                total={parseFloat(systemInfo.memory.total)}
-                used={parseFloat(systemInfo.memory.used)}
-                free={parseFloat(systemInfo.memory.free)}
-                usedPercent={systemInfo.memory.usedPercent}
-                icon={<Memory color="secondary" />}
-                color="#f50057"
-                chartData={memoryHistory}
-              />
-            </Grid>
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <InfoIcon className="h-4 w-4 text-primary" />
+                  <h3 className="text-sm font-medium">Informasi Sistem</h3>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm">{systemInfo?.os?.distro || 'Loading...'}</p>
+                  <p className="text-sm">{systemInfo?.os?.platform === 'win32' ? 'Windows' : systemInfo?.os?.platform || 'Loading...'}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-            <Grid item xs={12} md={4}>
-              <MetricCard 
-                title="CPU Load"
-                value={systemInfo.cpu.load}
-                unit="%"
-                icon={<Speed color="primary" />}
-                color="#2196f3"
-              />
-            </Grid>
+          {/* Main Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* CPU Card */}
+            <Card>
+              <CardHeader className="p-4">
+                <CardTitle className="flex items-center space-x-2 text-lg">
+                  <CpuIcon className="h-4 w-4" />
+                  <span>CPU Usage</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 pt-0">
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xl font-semibold">{systemInfo.cpu.load}%</span>
+                      <span className="text-xs text-muted-foreground">
+                        {systemInfo.cpu.cores} Cores
+                      </span>
+                    </div>
+                    <Progress value={parseFloat(systemInfo.cpu.load)} className="h-2" />
+                  </div>
+                  <div className="h-[180px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={cpuHistory.filter(item => item.time !== '')}>
+                        <defs>
+                          <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid 
+                          strokeDasharray="3 3" 
+                          vertical={false}
+                          stroke="hsl(var(--muted))"
+                        />
+                        <XAxis 
+                          dataKey="time" 
+                          stroke="hsl(var(--muted-foreground))"
+                          fontSize={10}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          stroke="hsl(var(--muted-foreground))"
+                          fontSize={10}
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(value) => `${value}%`}
+                          width={35}
+                        />
+                        <RechartsTooltip
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                                  <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                                  <p className="text-sm font-semibold text-primary">
+                                    {payload[0].value.toFixed(1)}%
+                                  </p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          stroke="hsl(var(--primary))"
+                          strokeWidth={2}
+                          fillOpacity={1}
+                          fill="url(#colorCpu)"
+                          isAnimationActive={false}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-            <Grid item xs={12} md={4}>
-              <MetricCard 
-                title="Memory Used"
-                value={systemInfo.memory.usedPercent}
-                unit="%"
-                icon={<Memory color="secondary" />}
-                color="#f50057"
-              />
-            </Grid>
+            {/* Memory Card */}
+            <Card>
+              <CardHeader className="p-4">
+                <CardTitle className="flex items-center space-x-2 text-lg">
+                  <MemoryStickIcon className="h-4 w-4" />
+                  <span>Memory Usage</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 pt-0">
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xl font-semibold">{systemInfo.memory.usedPercent}%</span>
+                      <span className="text-xs text-muted-foreground">
+                        {systemInfo.memory.used}GB / {systemInfo.memory.total}GB
+                      </span>
+                    </div>
+                    <Progress value={parseFloat(systemInfo.memory.usedPercent)} className="h-2" />
+                  </div>
+                  <div className="h-[180px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={memoryHistory.filter(item => item.time !== '')}>
+                        <defs>
+                          <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid 
+                          strokeDasharray="3 3" 
+                          vertical={false}
+                          stroke="hsl(var(--muted))"
+                        />
+                        <XAxis 
+                          dataKey="time" 
+                          stroke="hsl(var(--muted-foreground))"
+                          fontSize={10}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          stroke="hsl(var(--muted-foreground))"
+                          fontSize={10}
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(value) => `${value}%`}
+                          width={35}
+                        />
+                        <RechartsTooltip
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                                  <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                                  <p className="text-sm font-semibold text-primary">
+                                    {payload[0].value.toFixed(1)}%
+                                  </p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          stroke="hsl(var(--primary))"
+                          strokeWidth={2}
+                          fillOpacity={1}
+                          fill="url(#colorMemory)"
+                          isAnimationActive={false}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-            {systemInfo.disk.map((partition, index) => (
-              <Grid item xs={12} md={4} key={index}>
-                <MetricCard 
-                  title={`Disk (${partition.fs})`}
-                  value={partition.usedPercent}
-                  unit="%"
-                  icon={<Storage color="info" />}
-                  color="#00bcd4"
-                />
-              </Grid>
+            {/* Network Cards dengan Grafik */}
+            {systemInfo?.network?.map((net, index) => (
+              <Card key={index} className="col-span-2">
+                <CardHeader className="p-4">
+                  <CardTitle className="flex items-center space-x-2 text-lg">
+                    <NetworkIcon className="h-4 w-4" />
+                    <span>Network ({net.interface})</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 pt-0">
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Download Graph */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xl font-semibold text-emerald-500">{net.rx_sec} KB/s</span>
+                        <span className="text-xs text-muted-foreground">Download</span>
+                      </div>
+                      <div className="h-[120px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={networkHistory.download.filter(item => item.time !== '')}>
+                            <defs>
+                              <linearGradient id="colorDownload" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+                                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))"/>
+                            <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false}/>
+                            <YAxis stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `${value}KB/s`} width={50}/>
+                            <RechartsTooltip
+                              content={({ active, payload, label }) => {
+                                if (active && payload && payload.length) {
+                                  return (
+                                    <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                                      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                                      <p className="text-sm font-semibold text-emerald-500">
+                                        {payload[0].value.toFixed(2)} KB/s
+                                      </p>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              }}
+                            />
+                            <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorDownload)" isAnimationActive={false}/>
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Upload Graph */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xl font-semibold text-sky-500">{net.tx_sec} KB/s</span>
+                        <span className="text-xs text-muted-foreground">Upload</span>
+                      </div>
+                      <div className="h-[120px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={networkHistory.upload.filter(item => item.time !== '')}>
+                            <defs>
+                              <linearGradient id="colorUpload" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+                                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))"/>
+                            <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false}/>
+                            <YAxis stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `${value}KB/s`} width={50}/>
+                            <RechartsTooltip
+                              content={({ active, payload, label }) => {
+                                if (active && payload && payload.length) {
+                                  return (
+                                    <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                                      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                                      <p className="text-sm font-semibold text-sky-500">
+                                        {payload[0].value.toFixed(2)} KB/s
+                                      </p>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              }}
+                            />
+                            <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorUpload)" isAnimationActive={false}/>
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-muted-foreground">Total Download</p>
+                      <p className="text-sm font-medium">{net.rx_bytes}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Total Upload</p>
+                      <p className="text-sm font-medium">{net.tx_bytes}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
 
-            {systemInfo.network.map((net, index) => (
-              <Grid item xs={12} md={6} key={index}>
-                <Card>
-                  <CardContent>
-                    <Box display="flex" alignItems="center" mb={2}>
-                      <NetworkCheck color="success" />
-                      <Typography variant="h6" ml={1}>
-                        Network ({net.interface})
-                      </Typography>
-                    </Box>
-                    <Box sx={{ pl: 4 }}>
-                      <Typography variant="body1" color="success.main">
-                        ↓ Download: {net.rx_sec} KB/s
-                      </Typography>
-                      <Typography variant="body1" color="warning.main" mt={1}>
-                        ↑ Upload: {net.tx_sec} KB/s
-                      </Typography>
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
+            {/* Disk Cards */}
+            {systemInfo?.disk?.map((partition, index) => (
+              <Card key={index}>
+                <CardHeader className="p-4">
+                  <CardTitle className="flex items-center space-x-2 text-lg">
+                    <HardDriveIcon className="h-4 w-4" />
+                    <span>Disk ({partition.fs})</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 pt-0">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xl font-semibold">{partition.usedPercent}%</span>
+                        <span className="text-xs text-muted-foreground">
+                          {partition.used} / {partition.size}
+                        </span>
+                      </div>
+                      <Progress value={parseFloat(partition.usedPercent)} className="h-2" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Used Space</p>
+                        <p className="text-sm font-medium">{partition.used}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Free Space</p>
+                        <p className="text-sm font-medium">{partition.available}</p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
-          </Grid>
-        </Box>
-      </Container>
+          </div>
+        </div>
+      </div>
+      <Toaster />
     </ThemeProvider>
   );
 }

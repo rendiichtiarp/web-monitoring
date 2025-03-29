@@ -176,6 +176,7 @@ if [ -f ".env" ]; then
         cat << EOF > .env
 PORT=5000
 NODE_ENV=production
+CORS_ORIGIN=http://localhost:3000
 EOF
         log "File .env telah diperbarui"
     fi
@@ -184,6 +185,7 @@ else
     cat << EOF > .env
 PORT=5000
 NODE_ENV=production
+CORS_ORIGIN=http://localhost:3000
 EOF
 fi
 

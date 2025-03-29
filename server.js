@@ -5,39 +5,162 @@ const si = require('systeminformation');
 const cors = require('cors');
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
+
+// Middleware CORS yang dioptimalkan
+app.use(cors({
+  origin: "http://localhost:3000",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Accept"],
+  credentials: true,
+  maxAge: 86400
+}));
 
 // Konfigurasi Socket.IO yang dioptimalkan
 const io = socketIo(server, {
   cors: {
     origin: "http://localhost:3000",
     methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Accept"],
     credentials: true
   },
-  transports: ['websocket'],
-  pingTimeout: 60000,        // Turunkan timeout
-  pingInterval: 25000,       // Naikkan interval ping
-  connectTimeout: 45000,
-  maxHttpBufferSize: 1e8,
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,        // Naikkan timeout ping
+  pingInterval: 25000,       // Sesuaikan interval ping
+  upgradeTimeout: 30000,     // Naikkan timeout upgrade
+  maxHttpBufferSize: 1e6,
   allowEIO3: true,
-  rememberUpgrade: true,
-  cookie: {
-    name: 'io',
-    httpOnly: true,
-    path: '/',
-    sameSite: 'strict'
-  }
+  path: '/socket.io/',
+  serveClient: true,
+  connectTimeout: 45000,     // Naikkan timeout koneksi
+  reconnection: true,        // Aktifkan reconnection
+  reconnectionAttempts: 5,   // Maksimal 5 kali percobaan
+  reconnectionDelay: 1000,   // Delay 1 detik sebelum mencoba lagi
+  reconnectionDelayMax: 5000 // Maksimal delay 5 detik
+});
+
+// Tambahkan middleware untuk menangani OPTIONS request
+app.options('*', cors());
+
+// Tambahkan route untuk mengecek koneksi Socket.IO
+app.get('/socket.io/', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.send(JSON.stringify({ 
+    status: 'ok', 
+    message: 'Socket.IO endpoint aktif',
+    transports: ['websocket', 'polling']
+  }));
 });
 
 // Konstanta
-const UPDATE_INTERVAL = 3000;  
-const CACHE_DURATION = 2000;   
-const MAX_RETRIES = 3;         // Kurangi jumlah retry
-const SOCKET_RETRY_DELAY = 5000; // Naikkan delay retry
+const UPDATE_INTERVAL = 3000;  // Naikkan ke 3 detik
+const CACHE_DURATION = 2000;   // Naikkan ke 2 detik
+const MAX_RETRIES = 3;        // Kurangi max retries
+const SOCKET_RETRY_DELAY = 3000; // Naikkan delay retry
 const ACTIVE_CONNECTIONS = new Map();
+const HISTORY_FILE = path.join(__dirname, 'data', 'history.json');
+const MAX_HISTORY_LENGTH = 30;  // Kurangi panjang history
+
+// Buat direktori data jika belum ada
+if (!fs.existsSync(path.join(__dirname, 'data'))) {
+  fs.mkdirSync(path.join(__dirname, 'data'));
+}
+
+// Inisialisasi data historis
+let systemHistory = {
+  cpu: [],
+  memory: [],
+  network: {
+    download: [],
+    upload: []
+  },
+  timestamp: new Date().toISOString()
+};
+
+// Load data historis jika ada
+try {
+  if (fs.existsSync(HISTORY_FILE)) {
+    const historyData = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+    // Pastikan struktur data valid
+    systemHistory = {
+      cpu: Array.isArray(historyData.cpu) ? historyData.cpu : [],
+      memory: Array.isArray(historyData.memory) ? historyData.memory : [],
+      network: {
+        download: Array.isArray(historyData.network?.download) ? historyData.network.download : [],
+        upload: Array.isArray(historyData.network?.upload) ? historyData.network.upload : []
+      },
+      timestamp: historyData.timestamp || new Date().toISOString()
+    };
+  }
+} catch (error) {
+  console.error('Error loading history:', error);
+}
+
+// Modifikasi fungsi saveHistory
+const saveHistory = (data) => {
+  try {
+    const currentTime = new Date().toLocaleTimeString('id-ID');
+    
+    // Update CPU history
+    systemHistory.cpu.push({
+      time: currentTime,
+      value: parseFloat(data.cpu.load) || 0,
+      timestamp: Date.now()
+    });
+    if (systemHistory.cpu.length > MAX_HISTORY_LENGTH) {
+      systemHistory.cpu.shift();
+    }
+
+    // Update Memory history
+    systemHistory.memory.push({
+      time: currentTime,
+      value: parseFloat(data.memory.usedPercent) || 0,
+      timestamp: Date.now()
+    });
+    if (systemHistory.memory.length > MAX_HISTORY_LENGTH) {
+      systemHistory.memory.shift();
+    }
+
+    // Update Network history
+    if (data.network && Array.isArray(data.network) && data.network.length > 0) {
+      const networkData = data.network[0]; // Mengambil interface pertama
+      
+      // Download history
+      systemHistory.network.download.push({
+        time: currentTime,
+        value: parseFloat(networkData.rx_sec) || 0,
+        timestamp: Date.now()
+      });
+      if (systemHistory.network.download.length > MAX_HISTORY_LENGTH) {
+        systemHistory.network.download.shift();
+      }
+
+      // Upload history
+      systemHistory.network.upload.push({
+        time: currentTime,
+        value: parseFloat(networkData.tx_sec) || 0,
+        timestamp: Date.now()
+      });
+      if (systemHistory.network.upload.length > MAX_HISTORY_LENGTH) {
+        systemHistory.network.upload.shift();
+      }
+    }
+
+    systemHistory.timestamp = new Date().toISOString();
+
+    // Simpan ke file dengan penanganan error yang lebih baik
+    const historyString = JSON.stringify(systemHistory);
+    fs.writeFileSync(HISTORY_FILE, historyString);
+  } catch (error) {
+    console.error('Error saving history:', error);
+  }
+};
 
 // Cache untuk menyimpan data sistem
 let systemInfoCache = {
@@ -47,12 +170,13 @@ let systemInfoCache = {
 };
 
 // Middleware
-app.use(cors({
-  origin: "http://localhost:3000",
-  credentials: true
-}));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'client/build')));
+
+// Tambahkan route untuk health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // Fungsi helper untuk memformat bytes
 const formatBytes = (bytes, decimals = 2) => {
@@ -64,83 +188,51 @@ const formatBytes = (bytes, decimals = 2) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
-// Fungsi untuk mendapatkan informasi sistem dengan cache dan retry
+// Modifikasi fungsi getSystemInfo untuk mengoptimalkan data
 async function getSystemInfo() {
   try {
-    // Get OS info first
-    const osInfo = await si.osInfo();
-    console.log('OS Info:', osInfo); // Debug log
-
-    // Get uptime with better error handling
-    let uptime = 0;
-    try {
-      const timeData = await si.time();
-      console.log('Time data:', timeData); // Debug log
-      
-      if (timeData && typeof timeData.uptime === 'number' && timeData.uptime > 0) {
-        uptime = Math.floor(timeData.uptime);
-        console.log('Using si.time() uptime:', uptime);
-      } else {
-        uptime = Math.floor(os.uptime());
-        console.log('Using os.uptime():', uptime);
-      }
-    } catch (error) {
-      console.error('Error getting uptime from si.time():', error);
-      uptime = Math.floor(os.uptime());
-      console.log('Fallback to os.uptime():', uptime);
-    }
-
-    // Get other system info
-    const [cpu, mem, disk, network] = await Promise.all([
+    const [cpu, mem, disk, osInfo, networkStats] = await Promise.all([
       si.currentLoad(),
       si.mem(),
       si.fsSize(),
+      si.osInfo(),
       si.networkStats()
     ]);
 
-    // Format disk data
-    const formattedDisk = disk.map(partition => ({
-      fs: osInfo.platform === 'win32' ? partition.fs.split(':')[0] + ':' : partition.fs,
-      size: formatBytes(partition.size),
-      used: formatBytes(partition.used),
-      available: formatBytes(partition.available),
-      usedPercent: Math.min(partition.use || (partition.used / partition.size) * 100, 100).toFixed(1)
-    }));
-
-    // Format network data
-    const formattedNetwork = network.map(net => ({
-      interface: net.iface.replace(/\{.*\}/g, '').trim(),
-      rx_sec: (net.rx_sec / 1024).toFixed(2),
-      tx_sec: (net.tx_sec / 1024).toFixed(2),
-      rx_bytes: formatBytes(net.rx_bytes),
-      tx_bytes: formatBytes(net.tx_bytes)
-    }));
-
-    const systemInfo = {
-      os: {
-        platform: osInfo.platform || 'unknown',
-        distro: osInfo.distro || 'unknown',
-        release: osInfo.release || 'unknown',
-        hostname: osInfo.hostname || 'unknown'
-      },
+    // Format data minimal yang diperlukan
+    return {
       cpu: {
         load: cpu.currentLoad ? cpu.currentLoad.toFixed(1) : '0.0',
-        cores: cpu.cpus ? cpu.cpus.length : os.cpus().length
+        cores: os.cpus().length
       },
       memory: {
-        total: (mem.total / (1024 * 1024 * 1024)).toFixed(2),
-        used: (mem.used / (1024 * 1024 * 1024)).toFixed(2),
-        free: (mem.free / (1024 * 1024 * 1024)).toFixed(2),
+        total: (mem.total / (1024 * 1024 * 1024)).toFixed(1),
+        used: (mem.used / (1024 * 1024 * 1024)).toFixed(1),
         usedPercent: ((mem.used / mem.total) * 100).toFixed(1)
       },
-      disk: formattedDisk,
-      network: formattedNetwork,
-      uptime: uptime,
-      timestamp: new Date().toISOString()
+      disk: disk.map(partition => ({
+        fs: partition.fs,
+        size: formatBytes(partition.size),
+        used: formatBytes(partition.used),
+        available: formatBytes(partition.available),
+        usedPercent: ((partition.used / partition.size) * 100).toFixed(1)
+      })),
+      network: networkStats.map(net => ({
+        interface: net.iface,
+        rx_sec: (net.rx_sec / 1024).toFixed(2),
+        tx_sec: (net.tx_sec / 1024).toFixed(2),
+        rx_bytes: formatBytes(net.rx_bytes),
+        tx_bytes: formatBytes(net.tx_bytes)
+      })),
+      os: {
+        platform: osInfo.platform,
+        distro: osInfo.distro,
+        release: osInfo.release,
+        hostname: os.hostname(),
+        uptime: os.uptime()
+      },
+      timestamp: Date.now()
     };
-
-    console.log('Final uptime value:', systemInfo.uptime); // Debug log
-    return systemInfo;
   } catch (error) {
     console.error('Error in getSystemInfo:', error);
     throw error;
@@ -193,157 +285,157 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Socket.IO connection handler
+// Modifikasi event handler connection
 io.on('connection', async (socket) => {
   console.log('Client terhubung:', socket.id);
-  let updateInterval;
-  let retryTimeout;
-  let lastEmittedData = null;
   
-  // Tambahkan koneksi ke map
-  ACTIVE_CONNECTIONS.set(socket.id, {
+  let updateInterval;
+  let retryCount = 0;
+  
+  const connection = {
+    id: socket.id,
     connected: true,
     lastPing: Date.now(),
     updateInterval: null,
     retryCount: 0,
-    connectTime: new Date().toISOString(),
-    lastEmittedData: null
+    reconnecting: false
+  };
+  
+  ACTIVE_CONNECTIONS.set(socket.id, connection);
+
+  // Handle ping dengan timeout yang lebih lama
+  socket.on('ping', () => {
+    if (!socket.connected) return;
+    socket.emit('pong', { 
+      timestamp: new Date().toISOString(),
+      id: socket.id 
+    });
+    const conn = ACTIVE_CONNECTIONS.get(socket.id);
+    if (conn) {
+      conn.lastPing = Date.now();
+      conn.retryCount = 0;
+      conn.reconnecting = false;
+    }
+  });
+
+  // Handle error
+  socket.on('error', (error) => {
+    console.error(`Socket error (${socket.id}):`, error);
+    const conn = ACTIVE_CONNECTIONS.get(socket.id);
+    if (conn) {
+      conn.retryCount++;
+      if (conn.retryCount <= MAX_RETRIES) {
+        conn.reconnecting = true;
+        setTimeout(() => {
+          if (socket.connected) {
+            startUpdateInterval();
+          }
+        }, SOCKET_RETRY_DELAY);
+      }
+    }
+  });
+
+  // Handle disconnect dengan reconnect yang lebih baik
+  socket.on('disconnect', (reason) => {
+    console.log(`Client terputus (${socket.id}). Alasan:`, reason);
+    
+    const conn = ACTIVE_CONNECTIONS.get(socket.id);
+    if (conn) {
+      conn.connected = false;
+      conn.disconnectTime = Date.now();
+      
+      if (conn.updateInterval) {
+        clearInterval(conn.updateInterval);
+        conn.updateInterval = null;
+      }
+
+      // Coba reconnect jika disconnect bukan karena client sengaja memutuskan
+      if (reason !== 'client namespace disconnect' && !conn.reconnecting) {
+        conn.reconnecting = true;
+        setTimeout(() => {
+          if (socket.connected) {
+            conn.connected = true;
+            conn.reconnecting = false;
+            startUpdateInterval();
+          }
+        }, SOCKET_RETRY_DELAY);
+      }
+    }
+
+    if (updateInterval) {
+      clearInterval(updateInterval);
+      updateInterval = null;
+    }
   });
 
   const startUpdateInterval = async () => {
     try {
-      const connection = ACTIVE_CONNECTIONS.get(socket.id);
-      if (!connection || !connection.connected) return;
-
-      // Bersihkan interval yang ada
-      if (connection.updateInterval) {
-        clearInterval(connection.updateInterval);
-      }
+      const conn = ACTIVE_CONNECTIONS.get(socket.id);
+      if (!conn || !socket.connected) return;
 
       // Kirim data awal
       const initialData = await getSystemInfo();
       if (socket.connected) {
-        lastEmittedData = initialData;
         socket.emit('systemInfo', initialData);
+        saveHistory(initialData);
       }
 
-      // Set interval baru dengan pengecekan koneksi
-      connection.updateInterval = setInterval(async () => {
+      // Set interval untuk update
+      if (conn.updateInterval) {
+        clearInterval(conn.updateInterval);
+      }
+
+      conn.updateInterval = setInterval(async () => {
         try {
-          // Periksa koneksi sebelum mengirim data
           if (!socket.connected) {
-            clearInterval(connection.updateInterval);
+            clearInterval(conn.updateInterval);
             return;
           }
 
           const newData = await getSystemInfo();
-          if (!lastEmittedData || hasSignificantChanges(newData, lastEmittedData)) {
+          if (socket.connected) {
             socket.emit('systemInfo', newData);
-            lastEmittedData = newData;
+            saveHistory(newData);
+            conn.retryCount = 0;
           }
-          
-          connection.retryCount = 0;
         } catch (err) {
           console.error('Error in update interval:', err);
-          connection.retryCount++;
+          conn.retryCount++;
 
-          if (connection.retryCount > MAX_RETRIES) {
-            clearInterval(connection.updateInterval);
-            socket.disconnect(true);
+          if (conn.retryCount > MAX_RETRIES) {
+            clearInterval(conn.updateInterval);
+            socket.disconnect();
           }
         }
       }, UPDATE_INTERVAL);
 
-      // Update connection info
-      connection.updateInterval = updateInterval;
-      ACTIVE_CONNECTIONS.set(socket.id, connection);
+      ACTIVE_CONNECTIONS.set(socket.id, conn);
 
     } catch (err) {
       console.error('Error starting update interval:', err);
-      const connection = ACTIVE_CONNECTIONS.get(socket.id);
-      if (connection) {
-        connection.retryCount++;
-        if (connection.retryCount <= MAX_RETRIES && socket.connected) {
-          retryTimeout = setTimeout(() => startUpdateInterval(), SOCKET_RETRY_DELAY);
-        } else {
-          socket.disconnect(true);
-        }
-      }
-    }
-  };
-
-  // Fungsi untuk memeriksa perubahan signifikan
-  const hasSignificantChanges = (newData, oldData) => {
-    if (!oldData) return true;
-    
-    // Periksa perubahan CPU
-    const cpuDiff = Math.abs(parseFloat(newData.cpu.load) - parseFloat(oldData.cpu.load));
-    if (cpuDiff >= 0.1) return true;
-    
-    // Periksa perubahan Memory
-    const memDiff = Math.abs(parseFloat(newData.memory.usedPercent) - parseFloat(oldData.memory.usedPercent));
-    if (memDiff >= 1) return true;
-    
-    // Periksa perubahan Disk
-    const diskChanged = newData.disk.some((newDisk, index) => {
-      const oldDisk = oldData.disk[index];
-      if (!oldDisk) return true;
-      return Math.abs(parseFloat(newDisk.usedPercent) - parseFloat(oldDisk.usedPercent)) >= 1;
-    });
-    if (diskChanged) return true;
-    
-    return false;
-  };
-
-  // Mulai interval update
-  await startUpdateInterval();
-
-  // Ping-pong untuk menjaga koneksi
-  socket.on('ping', () => {
-    const connection = ACTIVE_CONNECTIONS.get(socket.id);
-    if (connection && socket.connected) {
-      connection.lastPing = Date.now();
-      socket.emit('pong');
-    }
-  });
-
-  socket.on('disconnect', (reason) => {
-    console.log(`[${socket.id}] Client terputus. Alasan:`, reason);
-    
-    const connection = ACTIVE_CONNECTIONS.get(socket.id);
-    if (connection) {
-      if (connection.updateInterval) {
-        clearInterval(connection.updateInterval);
-      }
-      connection.connected = false;
-      connection.disconnectReason = reason;
-      connection.disconnectTime = new Date().toISOString();
+      retryCount++;
       
-      // Hanya coba reconnect untuk alasan tertentu
-      if (reason === 'transport error' || reason === 'ping timeout') {
-        console.log(`[${socket.id}] Mencoba reconnect dalam ${SOCKET_RETRY_DELAY}ms`);
-        setTimeout(() => {
-          if (ACTIVE_CONNECTIONS.has(socket.id)) {
-            socket.connect();
-          }
-        }, SOCKET_RETRY_DELAY);
+      if (retryCount <= MAX_RETRIES && socket.connected) {
+        setTimeout(() => startUpdateInterval(), SOCKET_RETRY_DELAY);
       } else {
-        console.log(`[${socket.id}] Menghapus koneksi dari active connections`);
-        ACTIVE_CONNECTIONS.delete(socket.id);
+        socket.disconnect();
       }
     }
-    if (retryTimeout) {
-      clearTimeout(retryTimeout);
-    }
-  });
+  };
+
+  await startUpdateInterval();
 });
 
-// Interval untuk membersihkan koneksi yang tidak aktif
+// Tambahkan interval untuk monitoring koneksi aktif
 setInterval(() => {
   const now = Date.now();
+  io.sockets.emit('ping');
+  
+  // Log status koneksi aktif
+  console.log(`Koneksi aktif: ${ACTIVE_CONNECTIONS.size}`);
   for (const [socketId, connection] of ACTIVE_CONNECTIONS.entries()) {
-    if (!connection.connected || (now - connection.lastPing > 60000)) {
-      ACTIVE_CONNECTIONS.delete(socketId);
+    if (connection.connected) {
+      console.log(`- Socket ${socketId}: Last ping ${Math.floor((now - connection.lastPing) / 1000)}s ago`);
     }
   }
 }, 30000);

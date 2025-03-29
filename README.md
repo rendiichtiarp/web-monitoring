@@ -160,15 +160,22 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         
-        # WebSocket timeout settings
+        # WebSocket timeout settings yang dioptimalkan
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
+        proxy_connect_timeout 60s;
+        proxy_buffer_size 64k;
+        proxy_buffers 8 32k;
+        proxy_busy_buffers_size 128k;
     }
 
     # Security headers
     add_header X-Frame-Options "SAMEORIGIN";
     add_header X-XSS-Protection "1; mode=block";
     add_header X-Content-Type-Options "nosniff";
+    add_header Cache-Control "no-cache, no-store, must-revalidate";
+    add_header Pragma "no-cache";
+    add_header Expires "0";
 
     # Logging
     access_log /var/log/nginx/web-monitoring.access.log;
