@@ -23,9 +23,9 @@ const SOCKET_URL = window.location.protocol === 'https:'
 
 // Constants
 const HISTORY_LENGTH = 30;
-const RECONNECT_INTERVAL = 1000;
+const RECONNECT_INTERVAL = 3000;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const PING_INTERVAL = 1000;
+const PING_INTERVAL = 30000;
 
 // Format uptime function
 const formatUptime = (seconds) => {
@@ -58,9 +58,9 @@ const formatNetworkSpeed = (bitsPerSec) => {
 const socketOptions = {
   transports: ['websocket', 'polling'],
   reconnectionAttempts: 5,
-  reconnectionDelay: 500,
-  reconnectionDelayMax: 1000,
-  timeout: 5000,
+  reconnectionDelay: 3000,
+  reconnectionDelayMax: 10000,
+  timeout: 10000,
   path: '/socket.io/',
   autoConnect: false,
   withCredentials: true,
