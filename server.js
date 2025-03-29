@@ -60,25 +60,25 @@ app.get('/socket.io/', (req, res) => {
 });
 
 // Konstanta
-const UPDATE_INTERVAL = 5000;  // Diubah dari 1000 ke 5000 (5 detik)
-const CACHE_DURATION = 2000;   // Diubah dari 500 ke 2000 (2 detik)
+const UPDATE_INTERVAL = 10000;  // Diubah dari 5000 ke 10000 (10 detik)
+const CACHE_DURATION = 5000;   // Diubah dari 2000 ke 5000 (5 detik)
 const MAX_RETRIES = 3;
-const SOCKET_RETRY_DELAY = 3000; // Diubah dari 1000 ke 3000 (3 detik)
+const SOCKET_RETRY_DELAY = 5000; // Diubah dari 3000 ke 5000 (5 detik)
 const ACTIVE_CONNECTIONS = new Map();
 const HISTORY_FILE = path.join(__dirname, 'data', 'history.json');
-const MAX_HISTORY_LENGTH = 30;  // Kurangi panjang history
+const MAX_HISTORY_LENGTH = 20;  // Kurangi dari 30 ke 20
 
 // Tambahkan konfigurasi website untuk monitoring
 const WEBSITES_TO_MONITOR = [
   {
     name: 'Google',
     url: 'https://www.google.com',
-    interval: 300000 // Diubah dari 60000 ke 300000 (5 menit)
+    interval: 600000 // Diubah dari 300000 ke 600000 (10 menit)
   },
   {
     name: 'Cloudflare',
     url: 'https://www.cloudflare.com',
-    interval: 300000 // Diubah dari 60000 ke 300000 (5 menit)
+    interval: 600000 // Diubah dari 300000 ke 600000 (10 menit)
   }
 ];
 

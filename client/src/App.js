@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ThemeProvider, useTheme } from 'next-themes';
 import { Toaster } from 'sonner';
 import io from 'socket.io-client';
@@ -22,10 +22,10 @@ const SOCKET_URL = window.location.protocol === 'https:'
   : `http://${window.location.hostname}:5000`;
 
 // Constants
-const HISTORY_LENGTH = 30;
-const RECONNECT_INTERVAL = 3000;
+const HISTORY_LENGTH = 20;
+const RECONNECT_INTERVAL = 5000;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const PING_INTERVAL = 30000;
+const PING_INTERVAL = 60000;
 
 // Format uptime function
 const formatUptime = (seconds) => {
@@ -56,11 +56,11 @@ const formatNetworkSpeed = (bitsPerSec) => {
 
 // Socket connection configuration
 const socketOptions = {
-  transports: ['websocket', 'polling'],
+  transports: ['websocket'],
   reconnectionAttempts: 5,
-  reconnectionDelay: 3000,
-  reconnectionDelayMax: 10000,
-  timeout: 10000,
+  reconnectionDelay: 5000,
+  reconnectionDelayMax: 30000,
+  timeout: 20000,
   path: '/socket.io/',
   autoConnect: false,
   withCredentials: true,
@@ -297,6 +297,200 @@ function App() {
     setMounted(true);
   }, []);
 
+  // Tambahkan useMemo untuk optimasi performa chart
+  const memoizedChartComponents = useMemo(() => ({
+    cpuChart: (
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={cpuHistory.filter(item => item.time !== '')}>
+          <defs>
+            <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+            </linearGradient>
+          </defs>
+          <CartesianGrid 
+            strokeDasharray="3 3" 
+            vertical={false}
+            stroke="hsl(var(--muted))"
+          />
+          <XAxis 
+            dataKey="time" 
+            stroke="hsl(var(--muted-foreground))"
+            fontSize={10}
+            tickLine={false}
+            axisLine={false}
+          />
+          <YAxis
+            domain={[0, 100]}
+            stroke="hsl(var(--muted-foreground))"
+            fontSize={10}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(value) => `${value}%`}
+            width={35}
+          />
+          <RechartsTooltip
+            content={({ active, payload, label }) => {
+              if (active && payload && payload.length) {
+                return (
+                  <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                    <p className="text-sm font-semibold text-primary">
+                      {payload[0].value.toFixed(1)}%
+                    </p>
+                  </div>
+                );
+              }
+              return null;
+            }}
+          />
+          <Area
+            type="monotone"
+            dataKey="value"
+            stroke="hsl(var(--primary))"
+            strokeWidth={2}
+            fillOpacity={1}
+            fill="url(#colorCpu)"
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    ),
+    memoryChart: (
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={memoryHistory.filter(item => item.time !== '')}>
+          <defs>
+            <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+            </linearGradient>
+          </defs>
+          <CartesianGrid 
+            strokeDasharray="3 3" 
+            vertical={false}
+            stroke="hsl(var(--muted))"
+          />
+          <XAxis 
+            dataKey="time" 
+            stroke="hsl(var(--muted-foreground))"
+            fontSize={10}
+            tickLine={false}
+            axisLine={false}
+          />
+          <YAxis
+            domain={[0, 100]}
+            stroke="hsl(var(--muted-foreground))"
+            fontSize={10}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(value) => `${value}%`}
+            width={35}
+          />
+          <RechartsTooltip
+            content={({ active, payload, label }) => {
+              if (active && payload && payload.length) {
+                return (
+                  <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                    <p className="text-sm font-semibold text-primary">
+                      {payload[0].value.toFixed(1)}%
+                    </p>
+                  </div>
+                );
+              }
+              return null;
+            }}
+          />
+          <Area
+            type="monotone"
+            dataKey="value"
+            stroke="hsl(var(--primary))"
+            strokeWidth={2}
+            fillOpacity={1}
+            fill="url(#colorMemory)"
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    ),
+    networkUploadChart: (
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={networkHistory.upload.filter(item => item.time !== '')}>
+          <defs>
+            <linearGradient id="colorUpload" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))"/>
+          <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false}/>
+          <YAxis 
+            stroke="hsl(var(--muted-foreground))" 
+            fontSize={10} 
+            tickLine={false} 
+            axisLine={false} 
+            tickFormatter={(value) => formatNetworkSpeed(value)}
+            width={80}
+          />
+          <RechartsTooltip
+            content={({ active, payload, label }) => {
+              if (active && payload && payload.length) {
+                return (
+                  <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                    <p className="text-sm font-semibold text-sky-500">
+                      {formatNetworkSpeed(payload[0].value)}
+                    </p>
+                  </div>
+                );
+              }
+              return null;
+            }}
+          />
+          <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorUpload)" isAnimationActive={false}/>
+        </AreaChart>
+      </ResponsiveContainer>
+    ),
+    networkDownloadChart: (
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={networkHistory.download.filter(item => item.time !== '')}>
+          <defs>
+            <linearGradient id="colorDownload" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))"/>
+          <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false}/>
+          <YAxis 
+            stroke="hsl(var(--muted-foreground))" 
+            fontSize={10} 
+            tickLine={false} 
+            axisLine={false} 
+            tickFormatter={(value) => formatNetworkSpeed(value)}
+            width={80}
+          />
+          <RechartsTooltip
+            content={({ active, payload, label }) => {
+              if (active && payload && payload.length) {
+                return (
+                  <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
+                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                    <p className="text-sm font-semibold text-emerald-500">
+                      {formatNetworkSpeed(payload[0].value)}
+                    </p>
+                  </div>
+                );
+              }
+              return null;
+            }}
+          />
+          <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorDownload)" isAnimationActive={false}/>
+        </AreaChart>
+      </ResponsiveContainer>
+    )
+  }), [cpuHistory, memoryHistory, networkHistory]);
+
   // Loading state
   if (!isConnected || !systemInfo) {
     return (
@@ -477,61 +671,7 @@ function App() {
                     <Progress value={parseFloat(systemInfo.cpu.load)} className="h-2" />
                   </div>
                   <div className="h-[180px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={cpuHistory.filter(item => item.time !== '')}>
-                        <defs>
-                          <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid 
-                          strokeDasharray="3 3" 
-                          vertical={false}
-                          stroke="hsl(var(--muted))"
-                        />
-                        <XAxis 
-                          dataKey="time" 
-                          stroke="hsl(var(--muted-foreground))"
-                          fontSize={10}
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          domain={[0, 100]}
-                          stroke="hsl(var(--muted-foreground))"
-                          fontSize={10}
-                          tickLine={false}
-                          axisLine={false}
-                          tickFormatter={(value) => `${value}%`}
-                          width={35}
-                        />
-                        <RechartsTooltip
-                          content={({ active, payload, label }) => {
-                            if (active && payload && payload.length) {
-                              return (
-                                <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
-                                  <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                                  <p className="text-sm font-semibold text-primary">
-                                    {payload[0].value.toFixed(1)}%
-                                  </p>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="value"
-                          stroke="hsl(var(--primary))"
-                          strokeWidth={2}
-                          fillOpacity={1}
-                          fill="url(#colorCpu)"
-                          isAnimationActive={false}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    {memoizedChartComponents.cpuChart}
                   </div>
                 </div>
               </CardContent>
@@ -557,61 +697,7 @@ function App() {
                     <Progress value={parseFloat(systemInfo.memory.usedPercent)} className="h-2" />
                   </div>
                   <div className="h-[180px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={memoryHistory.filter(item => item.time !== '')}>
-                        <defs>
-                          <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid 
-                          strokeDasharray="3 3" 
-                          vertical={false}
-                          stroke="hsl(var(--muted))"
-                        />
-                        <XAxis 
-                          dataKey="time" 
-                          stroke="hsl(var(--muted-foreground))"
-                          fontSize={10}
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          domain={[0, 100]}
-                          stroke="hsl(var(--muted-foreground))"
-                          fontSize={10}
-                          tickLine={false}
-                          axisLine={false}
-                          tickFormatter={(value) => `${value}%`}
-                          width={35}
-                        />
-                        <RechartsTooltip
-                          content={({ active, payload, label }) => {
-                            if (active && payload && payload.length) {
-                              return (
-                                <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
-                                  <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                                  <p className="text-sm font-semibold text-primary">
-                                    {payload[0].value.toFixed(1)}%
-                                  </p>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="value"
-                          stroke="hsl(var(--primary))"
-                          strokeWidth={2}
-                          fillOpacity={1}
-                          fill="url(#colorMemory)"
-                          isAnimationActive={false}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    {memoizedChartComponents.memoryChart}
                   </div>
                 </div>
               </CardContent>
@@ -635,42 +721,7 @@ function App() {
                         <span className="text-xs text-muted-foreground">Upload</span>
                       </div>
                       <div className="h-[120px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={networkHistory.upload.filter(item => item.time !== '')}>
-                            <defs>
-                              <linearGradient id="colorUpload" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-                                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))"/>
-                            <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false}/>
-                            <YAxis 
-                              stroke="hsl(var(--muted-foreground))" 
-                              fontSize={10} 
-                              tickLine={false} 
-                              axisLine={false} 
-                              tickFormatter={(value) => formatNetworkSpeed(value)}
-                              width={80}
-                            />
-                            <RechartsTooltip
-                              content={({ active, payload, label }) => {
-                                if (active && payload && payload.length) {
-                                  return (
-                                    <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
-                                      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                                      <p className="text-sm font-semibold text-sky-500">
-                                        {formatNetworkSpeed(payload[0].value)}
-                                      </p>
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              }}
-                            />
-                            <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorUpload)" isAnimationActive={false}/>
-                          </AreaChart>
-                        </ResponsiveContainer>
+                        {memoizedChartComponents.networkUploadChart}
                       </div>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <div>
@@ -687,42 +738,7 @@ function App() {
                         <span className="text-xs text-muted-foreground">Download</span>
                       </div>
                       <div className="h-[120px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={networkHistory.download.filter(item => item.time !== '')}>
-                            <defs>
-                              <linearGradient id="colorDownload" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-                                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))"/>
-                            <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false}/>
-                            <YAxis 
-                              stroke="hsl(var(--muted-foreground))" 
-                              fontSize={10} 
-                              tickLine={false} 
-                              axisLine={false} 
-                              tickFormatter={(value) => formatNetworkSpeed(value)}
-                              width={80}
-                            />
-                            <RechartsTooltip
-                              content={({ active, payload, label }) => {
-                                if (active && payload && payload.length) {
-                                  return (
-                                    <div className="rounded-lg border bg-card px-3 py-2 shadow-md">
-                                      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                                      <p className="text-sm font-semibold text-emerald-500">
-                                        {formatNetworkSpeed(payload[0].value)}
-                                      </p>
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              }}
-                            />
-                            <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorDownload)" isAnimationActive={false}/>
-                          </AreaChart>
-                        </ResponsiveContainer>
+                        {memoizedChartComponents.networkDownloadChart}
                       </div>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <div>
