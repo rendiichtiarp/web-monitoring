@@ -1,18 +1,43 @@
 # Server Monitoring Dashboard
 
-Aplikasi web untuk monitoring server VPS Debian 12 yang menampilkan metrics sistem secara real-time.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-1.0-blue.svg)](https://github.com/rendiichtiarp/web-monitoring)
+
+Aplikasi web untuk monitoring server VPS Debian 12 yang menampilkan metrics sistem secara real-time dengan tampilan modern dan responsif.
 
 ## Fitur
 
-- Monitoring CPU usage dengan grafik real-time
-- Monitoring Memory usage dengan grafik real-time
-- Monitoring Disk usage untuk setiap partisi
-- Monitoring Network traffic (download/upload)
-- Tampilan dark mode yang modern
-- Update data real-time menggunakan WebSocket
-- Penyimpanan data historis dalam format JSON
-- Grafik performa yang interaktif
-- Tema yang dapat disesuaikan (light/dark mode)
+- **CPU Monitoring**
+  - Monitoring CPU usage secara real-time dengan grafik
+  - Tampilan detail untuk setiap core CPU
+  - Riwayat penggunaan CPU dalam grafik area
+  - Alert untuk penggunaan CPU tinggi
+
+- **Memory Monitoring**
+  - Monitoring RAM usage secara real-time
+  - Visualisasi penggunaan memory dengan progress bar
+  - Grafik penggunaan memory overtime
+  - Informasi total, used, dan available memory
+
+- **Disk Monitoring**
+  - Monitoring penggunaan disk untuk setiap partisi
+  - Informasi space tersedia dan terpakai
+  - Progress bar untuk visualisasi penggunaan
+  - Alert untuk disk space yang hampir penuh
+
+- **Network Monitoring**
+  - Monitoring traffic jaringan (download/upload)
+  - Grafik real-time untuk bandwidth usage
+  - Riwayat 5 detik terakhir untuk analisis cepat
+  - Konversi otomatis unit (bps, Kbps, Mbps, Gbps)
+
+- **Fitur Tambahan**
+  - Dark/Light mode yang dapat disesuaikan
+  - Responsive design untuk semua ukuran layar
+  - WebSocket untuk update data real-time
+  - Penyimpanan data historis dalam format JSON
+  - Auto-reconnect saat koneksi terputus
+  - Sistem alert dan notifikasi
 
 ## Persyaratan Sistem
 
@@ -21,10 +46,10 @@ Aplikasi web untuk monitoring server VPS Debian 12 yang menampilkan metrics sist
 - NPM v6 atau lebih tinggi
 - Nginx
 - Git
+- Minimal RAM: 1GB
+- Minimal Storage: 1GB free space
 
-## Instalasi Otomatis (Rekomendasi)
-
-Untuk instalasi otomatis, gunakan script berikut:
+## Instalasi Otomatis
 
 ```bash
 # Download script instalasi
@@ -37,345 +62,163 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-Script akan melakukan semua langkah instalasi secara otomatis, termasuk:
-- Update sistem
-- Instalasi dependencies
-- Konfigurasi Nginx
-- Setup service
-- Konfigurasi firewall
-- Setup penyimpanan data historis
-- Dan lainnya
+Script instalasi akan:
+1. Memeriksa dan memverifikasi dependensi yang dibutuhkan
+2. Mendeteksi instalasi yang sudah ada (jika ada)
+3. Memberikan opsi untuk instalasi baru atau upgrade
+4. Mengkonfigurasi semua komponen yang diperlukan
+5. Memverifikasi instalasi di akhir proses
 
-Setelah instalasi selesai, dashboard dapat diakses di:
-- http://localhost (jika mengakses dari server)
-- http://IP_SERVER (jika mengakses dari luar)
+## Konfigurasi
 
-## Instalasi Manual
+### Port yang Digunakan
+- 80: HTTP (Nginx)
+- 443: HTTPS (jika SSL dikonfigurasi)
+- 5000: Backend API dan WebSocket
 
-Jika Anda ingin melakukan instalasi manual, ikuti langkah-langkah berikut:
+### File Konfigurasi Utama
+- `/var/www/web-monitoring/.env`: Environment variables
+- `/etc/nginx/sites-available/web-monitoring`: Nginx configuration
+- `/etc/systemd/system/web-monitoring.service`: Service configuration
 
-## Langkah Instalasi di Debian 12
+### Data Storage
+- `/var/www/web-monitoring/data/history.json`: Historical data
+- `/var/www/web-monitoring/data/stats.json`: Current statistics
 
-### 1. Persiapan Server
-```bash
-# Update sistem
-sudo apt update && sudo apt upgrade -y
+## Penggunaan
 
-# Install Node.js dan npm
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt install -y nodejs
+Dashboard menampilkan:
 
-# Install Nginx
-sudo apt install -y nginx
+### 1. System Overview
+- Hostname dan OS info
+- Uptime server
+- Jumlah CPU core
+- Total memory
 
-# Install Git
-sudo apt install -y git
+### 2. CPU Metrics
+- Overall CPU usage
+- Per-core usage
+- Load history graph
+- Usage trends
 
-# Verifikasi instalasi
-node --version
-npm --version
-nginx -v
-```
+### 3. Memory Metrics
+- Current memory usage
+- Usage percentage
+- Memory history graph
+- Available/Used memory
 
-### 2. Clone dan Setup Aplikasi
-```bash
-# Buat direktori untuk aplikasi
-mkdir -p /var/www
-cd /var/www
+### 4. Network Statistics
+- Current upload/download rates
+- Network usage graphs
+- 5-second history
+- Total transferred data
 
-# Clone repository
-git clone https://github.com/rendiichtiarp/web-monitoring.git web-monitoring
-cd web-monitoring
-
-# Install dependencies backend
-npm install
-
-# Install dependencies frontend
-cd client
-npm install
-npm run build
-cd ..
-```
-
-### 3. Konfigurasi Environment
-```bash
-# Buat file .env di root folder
-cat << EOF > .env
-PORT=5000
-NODE_ENV=production
-EOF
-```
-
-### 4. Setup Service Systemd
-```bash
-# Buat file service
-sudo nano /etc/systemd/system/web-monitoring.service
-```
-
-Isi dengan konfigurasi berikut:
-```ini
-[Unit]
-Description=Web Monitoring Server
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/var/www/web-monitoring
-ExecStart=/usr/bin/node server.js
-Restart=always
-Environment=NODE_ENV=production
-Environment=PORT=5000
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### 5. Konfigurasi Nginx
-```bash
-# Buat konfigurasi Nginx
-sudo nano /etc/nginx/sites-available/web-monitoring
-```
-
-Isi dengan konfigurasi berikut:
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com; # Ganti dengan domain Anda
-
-    root /var/www/web-monitoring/client/build;
-    index index.html;
-
-    # Frontend static files
-    location / {
-        try_files $uri $uri/ /index.html;
-        add_header Cache-Control "no-cache, no-store, must-revalidate";
-    }
-
-    # Backend API dan WebSocket
-    location /socket.io/ {
-        proxy_pass http://localhost:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        
-        # WebSocket timeout settings yang dioptimalkan
-        proxy_read_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_connect_timeout 60s;
-        proxy_buffer_size 64k;
-        proxy_buffers 8 32k;
-        proxy_busy_buffers_size 128k;
-    }
-
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-XSS-Protection "1; mode=block";
-    add_header X-Content-Type-Options "nosniff";
-    add_header Cache-Control "no-cache, no-store, must-revalidate";
-    add_header Pragma "no-cache";
-    add_header Expires "0";
-
-    # Logging
-    access_log /var/log/nginx/web-monitoring.access.log;
-    error_log /var/log/nginx/web-monitoring.error.log;
-}
-```
-
-### 6. Aktifkan Konfigurasi
-```bash
-# Buat symlink
-sudo ln -s /etc/nginx/sites-available/web-monitoring /etc/nginx/sites-enabled/
-
-# Set permissions
-sudo chown -R www-data:www-data /var/www/web-monitoring
-sudo chmod -R 755 /var/www/web-monitoring
-
-# Test konfigurasi Nginx
-sudo nginx -t
-
-# Restart Nginx
-sudo systemctl restart nginx
-
-# Start dan enable service monitoring
-sudo systemctl start web-monitoring
-sudo systemctl enable web-monitoring
-```
-
-### 7. Setup Firewall (UFW)
-```bash
-# Install UFW jika belum ada
-sudo apt install -y ufw
-
-# Konfigurasi firewall
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 22/tcp
-
-# Aktifkan firewall
-sudo ufw enable
-```
-
-### 8. SSL/HTTPS (Opsional)
-```bash
-# Install Certbot
-sudo apt install -y certbot python3-certbot-nginx
-
-# Setup SSL
-sudo certbot --nginx -d your-domain.com
-
-# Auto-renewal SSL
-sudo systemctl status certbot.timer
-```
-
-## Monitoring dan Troubleshooting
-
-### Monitor Log
-```bash
-# Log aplikasi
-sudo journalctl -u web-monitoring -f
-
-# Log Nginx
-sudo tail -f /var/log/nginx/web-monitoring.error.log
-sudo tail -f /var/log/nginx/web-monitoring.access.log
-```
-
-### Cek Status Service
-```bash
-# Status aplikasi
-sudo systemctl status web-monitoring
-
-# Status Nginx
-sudo systemctl status nginx
-```
-
-### Restart Service
-```bash
-# Restart aplikasi
-sudo systemctl restart web-monitoring
-
-# Restart Nginx
-sudo systemctl restart nginx
-```
+### 5. Disk Information
+- Usage per partition
+- Available space
+- Used space
+- Usage percentage
 
 ## Pemeliharaan
+
+### Backup Data
+```bash
+# Backup file konfigurasi
+sudo cp /var/www/web-monitoring/.env /var/www/web-monitoring/.env.backup
+
+# Backup data historis
+sudo cp -r /var/www/web-monitoring/data /var/www/web-monitoring/data.backup
+```
 
 ### Update Aplikasi
 ```bash
 cd /var/www/web-monitoring
 git pull
 npm install
-cd client
-npm install
-npm run build
-cd ..
+cd client && npm install && npm run build
 sudo systemctl restart web-monitoring
 ```
 
-### Backup Konfigurasi
+### Troubleshooting
+
+#### 1. Masalah Koneksi
 ```bash
-# Backup Nginx config
-sudo cp /etc/nginx/sites-available/web-monitoring /etc/nginx/sites-available/web-monitoring.backup
-
-# Backup .env
-cp .env .env.backup
-```
-
-### Backup Data Historis
-```bash
-# Backup file data
-sudo cp /var/www/web-monitoring/data/history.json /var/www/web-monitoring/data/history.json.backup
-sudo cp /var/www/web-monitoring/data/stats.json /var/www/web-monitoring/data/stats.json.backup
-```
-
-### Reset Data Historis
-```bash
-# Reset file data jika diperlukan
-sudo rm /var/www/web-monitoring/data/history.json
-sudo rm /var/www/web-monitoring/data/stats.json
-```
-
-## Troubleshooting Umum
-
-### 1. Masalah WebSocket
-Jika mengalami error "websocket error":
-- Periksa konfigurasi Nginx terutama bagian location /socket.io/
-- Pastikan port 5000 tidak diblokir firewall
-- Cek log aplikasi untuk error spesifik
-
-### 2. Masalah Permission
-```bash
-# Reset permissions jika diperlukan
-sudo chown -R www-data:www-data /var/www/web-monitoring
-sudo chmod -R 755 /var/www/web-monitoring
-```
-
-### 3. Masalah Service Tidak Jalan
-```bash
-# Cek status dan log
+# Cek status service
 sudo systemctl status web-monitoring
-sudo journalctl -u web-monitoring -n 100 --no-pager
+
+# Cek log
+sudo journalctl -u web-monitoring -f
 ```
 
-## Catatan Penting
+#### 2. Masalah Data
+```bash
+# Reset data historis
+sudo rm /var/www/web-monitoring/data/*.json
+sudo systemctl restart web-monitoring
+```
 
-1. Ganti `your-domain.com` dengan domain Anda yang sebenarnya
-2. Pastikan DNS sudah dikonfigurasi dengan benar jika menggunakan domain
-3. Backup konfigurasi sebelum melakukan perubahan besar
-4. Monitor penggunaan resource server secara berkala
-5. Update sistem dan dependencies secara teratur
+#### 3. Masalah Nginx
+```bash
+# Test konfigurasi
+sudo nginx -t
+
+# Restart Nginx
+sudo systemctl restart nginx
+```
 
 ## Keamanan
 
-1. Selalu gunakan HTTPS di production
-2. Update sistem secara berkala
-3. Monitor log untuk aktivitas mencurigakan
-4. Batasi akses SSH hanya dari IP yang dipercaya
-5. Gunakan strong password atau SSH key
+1. Firewall dikonfigurasi untuk membatasi akses
+2. Semua service berjalan sebagai user www-data
+3. File permissions diatur dengan ketat
+4. Support untuk HTTPS/SSL
+5. Rate limiting untuk API endpoints
+
+## Monitoring dan Logging
+
+### Log Files
+- Nginx: `/var/log/nginx/web-monitoring.access.log`
+- Application: `journalctl -u web-monitoring`
+- System: `dmesg` atau `/var/log/syslog`
+
+### Metrics Storage
+- Data disimpan dalam format JSON
+- Auto-cleanup untuk data lama
+- Configurable retention period
+- Backup otomatis (opsional)
 
 ## Support
 
-Jika mengalami masalah atau butuh bantuan:
-1. Cek log aplikasi dan Nginx
-2. Periksa status service
-3. Pastikan semua port yang diperlukan terbuka
-4. Verifikasi konfigurasi Nginx
-5. Periksa permission folder data
-
-## Fitur Tambahan
-
-### Penyimpanan Data Historis
-Dashboard menyimpan data historis dalam format JSON untuk:
-- CPU Usage
-- Memory Usage
-- Network Traffic
-- Status Server
-
-Data disimpan di direktori `/var/www/web-monitoring/data/` dalam file:
-- `history.json`: Menyimpan data historis metrik sistem
-- `stats.json`: Menyimpan statistik terkini
-
-### Tema yang Dapat Disesuaikan
-- Light mode untuk tampilan cerah
-- Dark mode untuk tampilan gelap
-- Penyesuaian otomatis dengan tema sistem
-
-## Penggunaan
-
-Dashboard akan menampilkan:
-- Status dan performa server
-- Grafik penggunaan CPU
-- Grafik penggunaan Memory
-- Statistik Network
-- Informasi Disk
-- Data historis sistem
-
-Data akan diperbarui setiap 3 detik secara otomatis dan disimpan untuk referensi di masa mendatang.
+Jika mengalami masalah:
+1. Periksa log aplikasi dan sistem
+2. Pastikan semua service berjalan
+3. Verifikasi koneksi network
+4. Cek penggunaan resource
+5. Hubungi support jika diperlukan
 
 ## Credit
 
-Dikembangkan untuk Server Monitoring System. 
+Dikembangkan untuk Server Monitoring System.
+Version 1.0
+
+## Lisensi
+
+Proyek ini dilisensikan di bawah Lisensi MIT - lihat file [LICENSE](LICENSE) untuk detail.
+
+### Ketentuan Penggunaan
+
+1. Anda bebas menggunakan aplikasi ini untuk keperluan pribadi maupun komersial
+2. Anda dapat memodifikasi dan mendistribusikan ulang kode sumber
+3. Anda wajib menyertakan file LICENSE dan copyright notice pada setiap salinan
+4. Tidak ada jaminan apapun atas penggunaan aplikasi ini
+5. Pemilik aplikasi tidak bertanggung jawab atas kerusakan yang mungkin timbul
+
+### Kontribusi
+
+Kontribusi selalu diterima dengan senang hati. Untuk berkontribusi:
+
+1. Fork repositori ini
+2. Buat branch fitur baru (`git checkout -b fitur-baru`)
+3. Commit perubahan (`git commit -am 'Menambahkan fitur baru'`)
+4. Push ke branch (`git push origin fitur-baru`)
+5. Buat Pull Request baru 
