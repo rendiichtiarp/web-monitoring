@@ -210,13 +210,20 @@ function App() {
     const cpuValue = parseFloat(data.cpu.load) || 0;
     const memoryValue = parseFloat(data.memory.usedPercent) || 0;
 
-    // Update network history dengan nilai raw
-    if (data.network && data.network.length > 0) {
+    // Update network history
+    if (data.network && Array.isArray(data.network) && data.network.length > 0) {
       const networkData = data.network[0];
       setNetworkHistory(prev => ({
-        download: updateHistory(prev.download, networkData.rx_speed_raw * 8, timestamp), // Konversi ke bits
-        upload: updateHistory(prev.upload, networkData.tx_speed_raw * 8, timestamp) // Konversi ke bits
+        download: updateHistory(prev.download, networkData.rx_sec * 8, timestamp), // Konversi ke bits
+        upload: updateHistory(prev.upload, networkData.tx_sec * 8, timestamp) // Konversi ke bits
       }));
+
+      // Debug log untuk network update
+      console.log('Network data updated:', {
+        interface: networkData.iface,
+        download: formatNetworkSpeed(networkData.rx_sec * 8),
+        upload: formatNetworkSpeed(networkData.tx_sec * 8)
+      });
     }
 
     setLastUpdate(data.timestamp);

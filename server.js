@@ -164,7 +164,7 @@ const saveHistory = (data) => {
       // Download history
       systemHistory.network.download.push({
         time: currentTime,
-        value: parseFloat(networkData.rx_speed_raw) || 0,
+        value: parseFloat(networkData.rx_sec) || 0,
         timestamp: Date.now()
       });
       if (systemHistory.network.download.length > MAX_HISTORY_LENGTH) {
@@ -174,12 +174,19 @@ const saveHistory = (data) => {
       // Upload history
       systemHistory.network.upload.push({
         time: currentTime,
-        value: parseFloat(networkData.tx_speed_raw) || 0,
+        value: parseFloat(networkData.tx_sec) || 0,
         timestamp: Date.now()
       });
       if (systemHistory.network.upload.length > MAX_HISTORY_LENGTH) {
         systemHistory.network.upload.shift();
       }
+
+      // Debug log untuk network
+      debugLog('Network history updated', {
+        interface: networkData.iface,
+        download: systemHistory.network.download[systemHistory.network.download.length - 1],
+        upload: systemHistory.network.upload[systemHistory.network.upload.length - 1]
+      });
     }
 
     systemHistory.timestamp = new Date().toISOString();
