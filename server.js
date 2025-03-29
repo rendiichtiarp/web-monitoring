@@ -180,13 +180,6 @@ const saveHistory = (data) => {
       if (systemHistory.network.upload.length > MAX_HISTORY_LENGTH) {
         systemHistory.network.upload.shift();
       }
-
-      // Debug log untuk network
-      debugLog('Network history updated', {
-        interface: networkData.iface,
-        download: systemHistory.network.download[systemHistory.network.download.length - 1],
-        upload: systemHistory.network.upload[systemHistory.network.upload.length - 1]
-      });
     }
 
     systemHistory.timestamp = new Date().toISOString();
@@ -248,6 +241,10 @@ async function getSystemInfo() {
     // Dapatkan semua interface network yang aktif
     const networkInterfaces = await si.networkInterfaces();
     const currentStats = await si.networkStats();
+    
+    debugLog('Network Interfaces', networkInterfaces);
+    debugLog('Network Stats', currentStats);
+    
     const [cpuData, mem, disk, osInfo] = await Promise.all([
       si.currentLoad().then(data => ({
         ...data,
@@ -265,6 +262,8 @@ async function getSystemInfo() {
       iface.operstate === 'up' && !iface.internal
     );
     
+    debugLog('Active Interfaces', activeInterfaces);
+    
     // Hitung network speed untuk semua interface aktif
     const networkStats = currentStats
       .filter(stat => activeInterfaces.some(iface => iface.iface === stat.iface))
@@ -279,6 +278,12 @@ async function getSystemInfo() {
           if (lastStat && timeDiff > 0) {
             rx_speed = Math.max(0, (current.rx_bytes - lastStat.rx_bytes) / timeDiff);
             tx_speed = Math.max(0, (current.tx_bytes - lastStat.tx_bytes) / timeDiff);
+            
+            debugLog(`Network Speed for ${current.iface}`, {
+              rx_speed: formatNetworkSpeed(rx_speed * 8),
+              tx_speed: formatNetworkSpeed(tx_speed * 8),
+              timeDiff
+            });
           }
         }
 
@@ -291,6 +296,8 @@ async function getSystemInfo() {
           operstate: activeInterfaces.find(i => i.iface === current.iface)?.operstate || 'unknown'
         };
     });
+
+    debugLog('Network Stats Result', networkStats);
 
     // Update data terakhir untuk perhitungan berikutnya
     lastNetworkStats = currentStats;
