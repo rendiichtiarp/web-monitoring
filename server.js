@@ -28,19 +28,19 @@ const io = socketIo(server, {
     allowedHeaders: ["Content-Type", "Accept"],
     credentials: true
   },
-  transports: ['websocket'],
-  pingTimeout: 30000,        // Kurangi timeout ping
-  pingInterval: 10000,       // Sesuaikan interval ping
-  upgradeTimeout: 15000,     // Kurangi timeout upgrade
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,        // Naikkan timeout ping
+  pingInterval: 25000,       // Sesuaikan interval ping
+  upgradeTimeout: 30000,     // Naikkan timeout upgrade
   maxHttpBufferSize: 1e6,
   allowEIO3: true,
   path: '/socket.io/',
   serveClient: true,
-  connectTimeout: 20000,     // Kurangi timeout koneksi
-  reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 500,    // Kurangi delay reconnection
-  reconnectionDelayMax: 2000 // Kurangi max delay
+  connectTimeout: 45000,     // Naikkan timeout koneksi
+  reconnection: true,        // Aktifkan reconnection
+  reconnectionAttempts: 5,   // Maksimal 5 kali percobaan
+  reconnectionDelay: 1000,   // Delay 1 detik sebelum mencoba lagi
+  reconnectionDelayMax: 5000 // Maksimal delay 5 detik
 });
 
 // Tambahkan middleware untuk menangani OPTIONS request
@@ -54,19 +54,19 @@ app.get('/socket.io/', (req, res) => {
   res.send(JSON.stringify({ 
     status: 'ok', 
     message: 'Socket.IO endpoint aktif',
-    transports: ['websocket']
+    transports: ['websocket', 'polling']
   }));
 });
 
 // Konstanta
-const UPDATE_INTERVAL = 1000;  // Ubah ke 1 detik untuk update lebih real-time
-const CACHE_DURATION = 500;   // Kurangi cache duration
-const MAX_RETRIES = 3;
-const SOCKET_RETRY_DELAY = 1000; // Kurangi delay retry
+const UPDATE_INTERVAL = 3000;  // Naikkan ke 3 detik
+const CACHE_DURATION = 2000;   // Naikkan ke 2 detik
+const MAX_RETRIES = 3;        // Kurangi max retries
+const SOCKET_RETRY_DELAY = 3000; // Naikkan delay retry
 const ACTIVE_CONNECTIONS = new Map();
 const HISTORY_FILE = path.join(__dirname, 'data', 'history.json');
 const STATS_FILE = path.join(__dirname, 'data', 'stats.json');
-const MAX_HISTORY_LENGTH = 60;  // Tambah panjang history untuk data lebih detail
+const MAX_HISTORY_LENGTH = 30;  // Kurangi panjang history
 
 // Buat direktori data jika belum ada
 if (!fs.existsSync(path.join(__dirname, 'data'))) {
@@ -383,8 +383,7 @@ io.on('connection', async (socket) => {
     lastPing: Date.now(),
     updateInterval: null,
     retryCount: 0,
-    reconnecting: false,
-    lastData: null
+    reconnecting: false
   };
   
   ACTIVE_CONNECTIONS.set(socket.id, connection);
@@ -464,7 +463,6 @@ io.on('connection', async (socket) => {
       if (socket.connected) {
         socket.emit('systemInfo', initialData);
         saveHistory(initialData);
-        conn.lastData = initialData;
       }
 
       // Set interval untuk update
@@ -481,13 +479,9 @@ io.on('connection', async (socket) => {
 
           const newData = await getSystemInfo();
           if (socket.connected) {
-            // Hanya kirim data jika ada perubahan signifikan
-            if (hasSignificantChanges(newData, conn.lastData)) {
-              socket.emit('systemInfo', newData);
-              saveHistory(newData);
-              conn.lastData = newData;
-              conn.retryCount = 0;
-            }
+            socket.emit('systemInfo', newData);
+            saveHistory(newData);
+            conn.retryCount = 0;
           }
         } catch (err) {
           console.error('Error in update interval:', err);

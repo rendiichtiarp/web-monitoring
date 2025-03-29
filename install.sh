@@ -7,8 +7,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 echo -e "${GREEN}=====================================${NC}"
-echo -e "${GREEN}   RexbotX Monitoring Installer      ${NC}"
-echo -e "${GREEN}   by Rendiichtiar                   ${NC}"
+echo -e "${GREEN}   Server Monitoring Installer       ${NC}"
+echo -e "${GREEN}   System Dashboard                  ${NC}"
 echo -e "${GREEN}=====================================${NC}"
 
 # Check if running as root
@@ -65,7 +65,7 @@ EOL
 echo -e "${YELLOW}Creating service file...${NC}"
 cat > /etc/systemd/system/web-monitoring.service << EOL
 [Unit]
-Description=RexbotX Monitoring Dashboard
+Description=Server Monitoring Dashboard
 After=network.target
 
 [Service]

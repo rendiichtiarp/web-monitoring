@@ -1,6 +1,6 @@
-# RexbotX Monitoring Dashboard
+# Server Monitoring Dashboard
 
-Aplikasi web untuk monitoring WhatsApp Bot dan server VPS Debian 12 yang menampilkan metrics sistem secara real-time.
+Aplikasi web untuk monitoring server VPS Debian 12 yang menampilkan metrics sistem secara real-time.
 
 ## Fitur
 
@@ -8,7 +8,6 @@ Aplikasi web untuk monitoring WhatsApp Bot dan server VPS Debian 12 yang menampi
 - Monitoring Memory usage dengan grafik real-time
 - Monitoring Disk usage untuk setiap partisi
 - Monitoring Network traffic (download/upload)
-- Informasi status bot WhatsApp
 - Tampilan dark mode yang modern
 - Update data real-time menggunakan WebSocket
 - Penyimpanan data historis dalam format JSON
@@ -347,10 +346,28 @@ Jika mengalami masalah atau butuh bantuan:
 4. Verifikasi konfigurasi Nginx
 5. Periksa permission folder data
 
+## Fitur Tambahan
+
+### Penyimpanan Data Historis
+Dashboard menyimpan data historis dalam format JSON untuk:
+- CPU Usage
+- Memory Usage
+- Network Traffic
+- Status Server
+
+Data disimpan di direktori `/var/www/web-monitoring/data/` dalam file:
+- `history.json`: Menyimpan data historis metrik sistem
+- `stats.json`: Menyimpan statistik terkini
+
+### Tema yang Dapat Disesuaikan
+- Light mode untuk tampilan cerah
+- Dark mode untuk tampilan gelap
+- Penyesuaian otomatis dengan tema sistem
+
 ## Penggunaan
 
 Dashboard akan menampilkan:
-- Status dan performa bot WhatsApp
+- Status dan performa server
 - Grafik penggunaan CPU
 - Grafik penggunaan Memory
 - Statistik Network
@@ -361,4 +378,4 @@ Data akan diperbarui setiap 3 detik secara otomatis dan disimpan untuk referensi
 
 ## Credit
 
-Dikembangkan oleh Rendiichtiar untuk RexbotX Monitoring System. 
+Dikembangkan untuk Server Monitoring System. 

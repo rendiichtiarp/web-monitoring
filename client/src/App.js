@@ -22,17 +22,17 @@ const SOCKET_URL = window.location.protocol === 'https:'
   : `http://${window.location.hostname}:5000`;
 
 // Constants
-const HISTORY_LENGTH = 60;
-const CHART_UPDATE_INTERVAL = 1000;
-const RECONNECT_INTERVAL = 1000;
+const HISTORY_LENGTH = 30;
+const CHART_UPDATE_INTERVAL = 3000;
+const RECONNECT_INTERVAL = 3000;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const PING_INTERVAL = 5000;
-const CONNECTION_TIMEOUT = 15000;
+const PING_INTERVAL = 10000;
+const CONNECTION_TIMEOUT = 30000;
 
 // Debounced update function
 const debouncedUpdate = debounce((callback) => {
   callback();
-}, 100);
+}, 300);
 
 // Format uptime function
 const formatUptime = (seconds) => {
@@ -63,11 +63,11 @@ const formatNetworkSpeed = (bitsPerSec) => {
 
 // Socket connection configuration
 const socketOptions = {
-  transports: ['websocket'],
+  transports: ['websocket', 'polling'],
   reconnectionAttempts: 5,
-  reconnectionDelay: 500,
-  reconnectionDelayMax: 2000,
-  timeout: 15000,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 30000,
   path: '/socket.io/',
   autoConnect: false,
   withCredentials: true,
@@ -424,10 +424,10 @@ function App() {
                     <MonitorIcon className="h-8 w-8 text-primary animate-pulse" />
                     <div>
                       <h1 className="text-3xl font-bold bg-gradient-to-r from-primary via-blue-500 to-purple-500 bg-clip-text text-transparent">
-                        RexbotX Monitoring
+                        Server Monitoring
                       </h1>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Powered by Rendiichtiar
+                        Real-time System Metrics
                       </p>
                     </div>
                   </div>
@@ -517,7 +517,7 @@ function App() {
                   </div>
                   <div className="h-[180px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={cpuHistory.filter(item => item.time !== '')} style={{ animation: 'none' }}>
+                      <AreaChart data={cpuHistory.filter(item => item.time !== '')}>
                         <defs>
                           <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
@@ -568,7 +568,6 @@ function App() {
                           fillOpacity={1}
                           fill="url(#colorCpu)"
                           isAnimationActive={false}
-                          dot={false}
                         />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -598,7 +597,7 @@ function App() {
                   </div>
                   <div className="h-[180px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={memoryHistory.filter(item => item.time !== '')} style={{ animation: 'none' }}>
+                      <AreaChart data={memoryHistory.filter(item => item.time !== '')}>
                         <defs>
                           <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
@@ -649,7 +648,6 @@ function App() {
                           fillOpacity={1}
                           fill="url(#colorMemory)"
                           isAnimationActive={false}
-                          dot={false}
                         />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -677,7 +675,7 @@ function App() {
                       </div>
                       <div className="h-[120px]">
                         <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={networkHistory.upload.filter(item => item.time !== '')} style={{ animation: 'none' }}>
+                          <AreaChart data={networkHistory.upload.filter(item => item.time !== '')}>
                             <defs>
                               <linearGradient id="colorUpload" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
@@ -709,16 +707,7 @@ function App() {
                                 return null;
                               }}
                             />
-                            <Area
-                              type="monotone"
-                              dataKey="value"
-                              stroke="hsl(var(--primary))"
-                              strokeWidth={2}
-                              fillOpacity={1}
-                              fill="url(#colorUpload)"
-                              isAnimationActive={false}
-                              dot={false}
-                            />
+                            <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorUpload)" isAnimationActive={false}/>
                           </AreaChart>
                         </ResponsiveContainer>
                       </div>
@@ -738,7 +727,7 @@ function App() {
                       </div>
                       <div className="h-[120px]">
                         <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={networkHistory.download.filter(item => item.time !== '')} style={{ animation: 'none' }}>
+                          <AreaChart data={networkHistory.download.filter(item => item.time !== '')}>
                             <defs>
                               <linearGradient id="colorDownload" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
@@ -770,16 +759,7 @@ function App() {
                                 return null;
                               }}
                             />
-                            <Area
-                              type="monotone"
-                              dataKey="value"
-                              stroke="hsl(var(--primary))"
-                              strokeWidth={2}
-                              fillOpacity={1}
-                              fill="url(#colorDownload)"
-                              isAnimationActive={false}
-                              dot={false}
-                            />
+                            <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorDownload)" isAnimationActive={false}/>
                           </AreaChart>
                         </ResponsiveContainer>
                       </div>
@@ -839,22 +819,22 @@ function App() {
               <div className="space-y-2">
                 <h3 className="text-lg font-semibold flex items-center space-x-2">
                   <MonitorIcon className="h-5 w-5 text-primary" />
-                  <span>RexbotX Monitor</span>
+                  <span>System Monitor</span>
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Monitoring WhatsApp Bot performance and server resources in real-time
+                  Monitoring server performance and system resources in real-time
                 </p>
               </div>
               
               <div className="space-y-2">
                 <h3 className="text-lg font-semibold flex items-center space-x-2">
                   <InfoIcon className="h-5 w-5 text-primary" />
-                  <span>Bot Info</span>
+                  <span>System Info</span>
                 </h3>
                 <div className="text-sm text-muted-foreground space-y-1">
                   <p>Update Interval: {CHART_UPDATE_INTERVAL/1000}s</p>
                   <p>History Length: {HISTORY_LENGTH} points</p>
-                  <p>Status: {socketStatus === 'connected' ? 'Bot Active' : 'Bot Inactive'}</p>
+                  <p>Status: {socketStatus === 'connected' ? 'System Active' : 'System Inactive'}</p>
                 </div>
               </div>
 
@@ -873,12 +853,12 @@ function App() {
 
             <div className="mt-8 pt-4 border-t border-border/50 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
               <p className="text-sm text-muted-foreground">
-                © {new Date().getFullYear()} RexbotX by Rendiichtiar. All rights reserved.
+                © {new Date().getFullYear()} Server Monitoring Dashboard. All rights reserved.
               </p>
               <div className="flex items-center space-x-4">
                 <span className="text-sm text-muted-foreground flex items-center space-x-1">
                   <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-                  <span>{isConnected ? 'Bot Online' : 'Bot Offline'}</span>
+                  <span>{isConnected ? 'System Online' : 'System Offline'}</span>
                 </span>
               </div>
             </div>
