@@ -22,17 +22,17 @@ const SOCKET_URL = window.location.protocol === 'https:'
   : `http://${window.location.hostname}:5000`;
 
 // Constants
-const HISTORY_LENGTH = 30;
-const CHART_UPDATE_INTERVAL = 3000;
-const RECONNECT_INTERVAL = 3000;
+const HISTORY_LENGTH = 60;
+const CHART_UPDATE_INTERVAL = 1000;
+const RECONNECT_INTERVAL = 1000;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const PING_INTERVAL = 10000;
-const CONNECTION_TIMEOUT = 30000;
+const PING_INTERVAL = 5000;
+const CONNECTION_TIMEOUT = 15000;
 
 // Debounced update function
 const debouncedUpdate = debounce((callback) => {
   callback();
-}, 300);
+}, 100);
 
 // Format uptime function
 const formatUptime = (seconds) => {
@@ -63,11 +63,11 @@ const formatNetworkSpeed = (bitsPerSec) => {
 
 // Socket connection configuration
 const socketOptions = {
-  transports: ['websocket', 'polling'],
+  transports: ['websocket'],
   reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
-  timeout: 30000,
+  reconnectionDelay: 500,
+  reconnectionDelayMax: 2000,
+  timeout: 15000,
   path: '/socket.io/',
   autoConnect: false,
   withCredentials: true,
@@ -517,7 +517,7 @@ function App() {
                   </div>
                   <div className="h-[180px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={cpuHistory.filter(item => item.time !== '')}>
+                      <AreaChart data={cpuHistory.filter(item => item.time !== '')} style={{ animation: 'none' }}>
                         <defs>
                           <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
@@ -568,6 +568,7 @@ function App() {
                           fillOpacity={1}
                           fill="url(#colorCpu)"
                           isAnimationActive={false}
+                          dot={false}
                         />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -597,7 +598,7 @@ function App() {
                   </div>
                   <div className="h-[180px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={memoryHistory.filter(item => item.time !== '')}>
+                      <AreaChart data={memoryHistory.filter(item => item.time !== '')} style={{ animation: 'none' }}>
                         <defs>
                           <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
@@ -648,6 +649,7 @@ function App() {
                           fillOpacity={1}
                           fill="url(#colorMemory)"
                           isAnimationActive={false}
+                          dot={false}
                         />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -675,7 +677,7 @@ function App() {
                       </div>
                       <div className="h-[120px]">
                         <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={networkHistory.upload.filter(item => item.time !== '')}>
+                          <AreaChart data={networkHistory.upload.filter(item => item.time !== '')} style={{ animation: 'none' }}>
                             <defs>
                               <linearGradient id="colorUpload" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
@@ -707,7 +709,16 @@ function App() {
                                 return null;
                               }}
                             />
-                            <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorUpload)" isAnimationActive={false}/>
+                            <Area
+                              type="monotone"
+                              dataKey="value"
+                              stroke="hsl(var(--primary))"
+                              strokeWidth={2}
+                              fillOpacity={1}
+                              fill="url(#colorUpload)"
+                              isAnimationActive={false}
+                              dot={false}
+                            />
                           </AreaChart>
                         </ResponsiveContainer>
                       </div>
@@ -727,7 +738,7 @@ function App() {
                       </div>
                       <div className="h-[120px]">
                         <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={networkHistory.download.filter(item => item.time !== '')}>
+                          <AreaChart data={networkHistory.download.filter(item => item.time !== '')} style={{ animation: 'none' }}>
                             <defs>
                               <linearGradient id="colorDownload" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
@@ -759,7 +770,16 @@ function App() {
                                 return null;
                               }}
                             />
-                            <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorDownload)" isAnimationActive={false}/>
+                            <Area
+                              type="monotone"
+                              dataKey="value"
+                              stroke="hsl(var(--primary))"
+                              strokeWidth={2}
+                              fillOpacity={1}
+                              fill="url(#colorDownload)"
+                              isAnimationActive={false}
+                              dot={false}
+                            />
                           </AreaChart>
                         </ResponsiveContainer>
                       </div>

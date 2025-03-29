@@ -1,6 +1,6 @@
-# VPS Server Monitoring Dashboard
+# RexbotX Monitoring Dashboard
 
-Aplikasi web untuk monitoring server VPS Debian 12 yang menampilkan metrics sistem secara real-time.
+Aplikasi web untuk monitoring WhatsApp Bot dan server VPS Debian 12 yang menampilkan metrics sistem secara real-time.
 
 ## Fitur
 
@@ -8,9 +8,12 @@ Aplikasi web untuk monitoring server VPS Debian 12 yang menampilkan metrics sist
 - Monitoring Memory usage dengan grafik real-time
 - Monitoring Disk usage untuk setiap partisi
 - Monitoring Network traffic (download/upload)
-- Informasi proses sistem
+- Informasi status bot WhatsApp
 - Tampilan dark mode yang modern
 - Update data real-time menggunakan WebSocket
+- Penyimpanan data historis dalam format JSON
+- Grafik performa yang interaktif
+- Tema yang dapat disesuaikan (light/dark mode)
 
 ## Persyaratan Sistem
 
@@ -41,6 +44,7 @@ Script akan melakukan semua langkah instalasi secara otomatis, termasuk:
 - Konfigurasi Nginx
 - Setup service
 - Konfigurasi firewall
+- Setup penyimpanan data historis
 - Dan lainnya
 
 Setelah instalasi selesai, dashboard dapat diakses di:
@@ -282,6 +286,20 @@ sudo cp /etc/nginx/sites-available/web-monitoring /etc/nginx/sites-available/web
 cp .env .env.backup
 ```
 
+### Backup Data Historis
+```bash
+# Backup file data
+sudo cp /var/www/web-monitoring/data/history.json /var/www/web-monitoring/data/history.json.backup
+sudo cp /var/www/web-monitoring/data/stats.json /var/www/web-monitoring/data/stats.json.backup
+```
+
+### Reset Data Historis
+```bash
+# Reset file data jika diperlukan
+sudo rm /var/www/web-monitoring/data/history.json
+sudo rm /var/www/web-monitoring/data/stats.json
+```
+
 ## Troubleshooting Umum
 
 ### 1. Masalah WebSocket
@@ -327,14 +345,20 @@ Jika mengalami masalah atau butuh bantuan:
 2. Periksa status service
 3. Pastikan semua port yang diperlukan terbuka
 4. Verifikasi konfigurasi Nginx
+5. Periksa permission folder data
 
 ## Penggunaan
 
-Dashboard akan menampilkan metrics server secara real-time, termasuk:
+Dashboard akan menampilkan:
+- Status dan performa bot WhatsApp
 - Grafik penggunaan CPU
 - Grafik penggunaan Memory
-- Informasi penggunaan Disk
 - Statistik Network
-- Informasi Proses
+- Informasi Disk
+- Data historis sistem
 
-Data akan diperbarui setiap 2 detik secara otomatis. 
+Data akan diperbarui setiap 3 detik secara otomatis dan disimpan untuk referensi di masa mendatang.
+
+## Credit
+
+Dikembangkan oleh Rendiichtiar untuk RexbotX Monitoring System. 
