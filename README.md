@@ -49,7 +49,9 @@ Aplikasi web untuk monitoring server VPS Debian 12 yang menampilkan metrics sist
 - Minimal RAM: 1GB
 - Minimal Storage: 1GB free space
 
-## Instalasi Otomatis
+## Instalasi
+
+### 1. Instalasi Otomatis
 
 ```bash
 # Download script instalasi
@@ -68,6 +70,203 @@ Script instalasi akan:
 3. Memberikan opsi untuk instalasi baru atau upgrade
 4. Mengkonfigurasi semua komponen yang diperlukan
 5. Memverifikasi instalasi di akhir proses
+
+### 2. Instalasi Manual
+
+Jika Anda ingin melakukan instalasi secara manual, ikuti langkah-langkah berikut:
+
+#### A. Persiapan Sistem
+```bash
+# Update sistem
+sudo apt update && sudo apt upgrade -y
+
+# Install dependensi yang dibutuhkan
+sudo apt install -y curl git nginx
+
+# Install Node.js 18.x
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Verifikasi instalasi
+node --version  # Minimal v18
+npm --version   # Minimal v6
+```
+
+#### B. Instalasi Aplikasi
+```bash
+# Buat direktori aplikasi
+sudo mkdir -p /var/www/web-monitoring
+cd /var/www/web-monitoring
+
+# Clone repository
+sudo git clone https://github.com/rendiichtiarp/web-monitoring.git .
+
+# Install dependensi Node.js
+sudo npm install
+cd client && sudo npm install && sudo npm run build && cd ..
+
+# Buat direktori data
+sudo mkdir -p /var/www/web-monitoring/data
+sudo touch /var/www/web-monitoring/data/history.json
+sudo touch /var/www/web-monitoring/data/stats.json
+
+# Set permissions
+sudo chown -R www-data:www-data /var/www/web-monitoring
+sudo chmod -R 755 /var/www/web-monitoring
+```
+
+#### C. Konfigurasi Environment
+```bash
+# Buat file .env
+sudo cat > /var/www/web-monitoring/.env << EOL
+PORT=5000
+NODE_ENV=production
+CORS_ORIGIN=http://localhost
+HISTORY_FILE=/var/www/web-monitoring/data/history.json
+STATS_FILE=/var/www/web-monitoring/data/stats.json
+EOL
+```
+
+#### D. Konfigurasi Service
+```bash
+# Buat service systemd
+sudo cat > /etc/systemd/system/web-monitoring.service << EOL
+[Unit]
+Description=Server Monitoring Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/web-monitoring
+ExecStart=/usr/bin/node server.js
+Restart=always
+Environment=NODE_ENV=production
+Environment=PORT=5000
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+# Aktifkan service
+sudo systemctl daemon-reload
+sudo systemctl enable web-monitoring
+sudo systemctl start web-monitoring
+```
+
+#### E. Konfigurasi Nginx
+
+1. **Tanpa Domain (IP Only)**
+```bash
+sudo cat > /etc/nginx/sites-available/web-monitoring << EOL
+server {
+    listen 80 default_server;
+    server_name _;
+
+    location / {
+        root /var/www/web-monitoring/client/build;
+        index index.html;
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    location /socket.io/ {
+        proxy_pass http://localhost:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+
+    location /api {
+        proxy_pass http://localhost:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+}
+EOL
+```
+
+2. **Dengan Domain dan SSL**
+```bash
+# Install Certbot
+sudo apt install -y certbot python3-certbot-nginx
+
+# Konfigurasi Nginx dengan domain
+sudo cat > /etc/nginx/sites-available/web-monitoring << EOL
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        root /var/www/web-monitoring/client/build;
+        index index.html;
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    location /socket.io/ {
+        proxy_pass http://localhost:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /api {
+        proxy_pass http://localhost:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOL
+
+# Aktifkan konfigurasi
+sudo ln -sf /etc/nginx/sites-available/web-monitoring /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl restart nginx
+
+# Setup SSL (ganti your-domain.com dengan domain Anda)
+sudo certbot --nginx -d your-domain.com
+
+# Aktifkan auto-renewal SSL
+sudo systemctl enable certbot.timer
+sudo systemctl start certbot.timer
+```
+
+#### F. Konfigurasi Firewall
+```bash
+# Buka port yang diperlukan
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 5000/tcp
+```
+
+#### G. Verifikasi Instalasi
+```bash
+# Cek status service
+sudo systemctl status web-monitoring
+sudo systemctl status nginx
+
+# Cek log
+sudo journalctl -u web-monitoring -f
+sudo tail -f /var/log/nginx/error.log
+```
 
 ## Konfigurasi
 
