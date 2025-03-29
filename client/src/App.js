@@ -22,7 +22,7 @@ const SOCKET_URL = window.location.protocol === 'https:'
   : `http://${window.location.hostname}:5000`;
 
 // Constants
-const HISTORY_LENGTH = 30;
+const HISTORY_LENGTH = 5; // Tampilkan hanya 5 detik terakhir untuk data network
 const CHART_UPDATE_INTERVAL = 3000;
 const RECONNECT_INTERVAL = 3000;
 const MAX_RECONNECT_ATTEMPTS = 5;
