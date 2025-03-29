@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const socketIo = require('socket.io');
 const si = require('systeminformation');
 const cors = require('cors');
@@ -29,18 +30,18 @@ const io = socketIo(server, {
     credentials: true
   },
   transports: ['websocket', 'polling'],
-  pingTimeout: 60000,        // Naikkan timeout ping
-  pingInterval: 25000,       // Sesuaikan interval ping
-  upgradeTimeout: 30000,     // Naikkan timeout upgrade
+  pingTimeout: 5000,        // Diubah dari 60000 ke 5000
+  pingInterval: 1000,       // Diubah dari 25000 ke 1000
+  upgradeTimeout: 5000,     // Diubah dari 30000 ke 5000
   maxHttpBufferSize: 1e6,
   allowEIO3: true,
   path: '/socket.io/',
   serveClient: true,
-  connectTimeout: 45000,     // Naikkan timeout koneksi
-  reconnection: true,        // Aktifkan reconnection
-  reconnectionAttempts: 5,   // Maksimal 5 kali percobaan
-  reconnectionDelay: 1000,   // Delay 1 detik sebelum mencoba lagi
-  reconnectionDelayMax: 5000 // Maksimal delay 5 detik
+  connectTimeout: 5000,     // Diubah dari 45000 ke 5000
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 500,   // Diubah dari 1000 ke 500
+  reconnectionDelayMax: 1000 // Diubah dari 5000 ke 1000
 });
 
 // Tambahkan middleware untuk menangani OPTIONS request
@@ -59,13 +60,98 @@ app.get('/socket.io/', (req, res) => {
 });
 
 // Konstanta
-const UPDATE_INTERVAL = 3000;  // Naikkan ke 3 detik
-const CACHE_DURATION = 2000;   // Naikkan ke 2 detik
-const MAX_RETRIES = 3;        // Kurangi max retries
-const SOCKET_RETRY_DELAY = 3000; // Naikkan delay retry
+const UPDATE_INTERVAL = 1000;  // Diubah dari 3000 ke 1000
+const CACHE_DURATION = 500;   // Diubah dari 2000 ke 500
+const MAX_RETRIES = 3;
+const SOCKET_RETRY_DELAY = 1000; // Diubah dari 3000 ke 1000
 const ACTIVE_CONNECTIONS = new Map();
 const HISTORY_FILE = path.join(__dirname, 'data', 'history.json');
 const MAX_HISTORY_LENGTH = 30;  // Kurangi panjang history
+
+// Tambahkan konfigurasi website untuk monitoring
+const WEBSITES_TO_MONITOR = [
+  {
+    name: 'Google',
+    url: 'https://www.google.com',
+    interval: 60000 // 60 detik
+  },
+  {
+    name: 'Cloudflare',
+    url: 'https://www.cloudflare.com',
+    interval: 60000
+  }
+];
+
+// Fungsi untuk melakukan ping ke website
+const pingWebsite = async (website) => {
+  const startTime = Date.now();
+  
+  return new Promise((resolve) => {
+    const isHttps = website.url.startsWith('https');
+    const client = isHttps ? https : http;
+    
+    const req = client.get(website.url, (res) => {
+      const endTime = Date.now();
+      const responseTime = endTime - startTime;
+      
+      resolve({
+        name: website.name,
+        url: website.url,
+        status: res.statusCode,
+        responseTime,
+        online: res.statusCode >= 200 && res.statusCode < 400,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    req.on('error', (error) => {
+      resolve({
+        name: website.name,
+        url: website.url,
+        status: 0,
+        responseTime: 0,
+        online: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    req.setTimeout(10000, () => {
+      req.destroy();
+      resolve({
+        name: website.name,
+        url: website.url,
+        status: 0,
+        responseTime: 10000,
+        online: false,
+        error: 'Timeout',
+        timestamp: new Date().toISOString()
+      });
+    });
+  });
+};
+
+// Simpan status website
+let websiteStatus = new Map();
+
+// Fungsi untuk memulai monitoring website
+const startWebsiteMonitoring = (io) => {
+  WEBSITES_TO_MONITOR.forEach(website => {
+    const monitor = async () => {
+      try {
+        const status = await pingWebsite(website);
+        websiteStatus.set(website.url, status);
+        io.emit('websiteStatus', Array.from(websiteStatus.values()));
+      } catch (error) {
+        console.error(`Error monitoring ${website.url}:`, error);
+      }
+    };
+
+    // Mulai monitoring
+    monitor();
+    setInterval(monitor, website.interval);
+  });
+};
 
 // Buat direktori data jika belum ada
 if (!fs.existsSync(path.join(__dirname, 'data'))) {
@@ -355,6 +441,11 @@ io.on('connection', async (socket) => {
   
   ACTIVE_CONNECTIONS.set(socket.id, connection);
 
+  // Kirim status website terkini ke client baru
+  if (websiteStatus.size > 0) {
+    socket.emit('websiteStatus', Array.from(websiteStatus.values()));
+  }
+
   // Handle ping dengan timeout yang lebih lama
   socket.on('ping', () => {
     if (!socket.connected) return;
@@ -506,4 +597,5 @@ server.listen(PORT, () => {
   console.log(`Server berjalan pada port ${PORT}`);
   console.log(`Interval pembaruan: ${UPDATE_INTERVAL}ms`);
   console.log(`Cache duration: ${CACHE_DURATION}ms`);
+  startWebsiteMonitoring(io);
 }); 

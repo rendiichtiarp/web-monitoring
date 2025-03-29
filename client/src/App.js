@@ -1,20 +1,20 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ThemeProvider, useTheme } from 'next-themes';
 import { Toaster } from 'sonner';
 import io from 'socket.io-client';
-import { debounce } from 'lodash';
 import {
   XAxis, YAxis, Tooltip as RechartsTooltip,
   ResponsiveContainer, Area, AreaChart,
-  PieChart, Pie, Cell, CartesianGrid
+  CartesianGrid
 } from 'recharts';
 import {
   MonitorIcon, ServerIcon, CpuIcon, 
   HardDriveIcon, NetworkIcon, SunIcon, 
-  MoonIcon, TimerIcon, InfoIcon, MemoryStickIcon
+  MoonIcon, TimerIcon, InfoIcon, MemoryStickIcon,
+  CheckCircleIcon, XCircleIcon
 } from 'lucide-react';
 import { Button } from './components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Progress } from './components/ui/progress';
 
 const SOCKET_URL = window.location.protocol === 'https:' 
@@ -23,16 +23,9 @@ const SOCKET_URL = window.location.protocol === 'https:'
 
 // Constants
 const HISTORY_LENGTH = 30;
-const CHART_UPDATE_INTERVAL = 3000;
-const RECONNECT_INTERVAL = 3000;
+const RECONNECT_INTERVAL = 1000;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const PING_INTERVAL = 10000;
-const CONNECTION_TIMEOUT = 30000;
-
-// Debounced update function
-const debouncedUpdate = debounce((callback) => {
-  callback();
-}, 300);
+const PING_INTERVAL = 1000;
 
 // Format uptime function
 const formatUptime = (seconds) => {
@@ -65,9 +58,9 @@ const formatNetworkSpeed = (bitsPerSec) => {
 const socketOptions = {
   transports: ['websocket', 'polling'],
   reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
-  timeout: 30000,
+  reconnectionDelay: 500,
+  reconnectionDelayMax: 1000,
+  timeout: 5000,
   path: '/socket.io/',
   autoConnect: false,
   withCredentials: true,
@@ -120,8 +113,7 @@ function App() {
   const [socketStatus, setSocketStatus] = useState('disconnected');
   const [mounted, setMounted] = useState(false);
   const [socket, setSocket] = useState(null);
-
-  const { theme, setTheme } = useTheme();
+  const [websiteStatus, setWebsiteStatus] = useState([]);
 
   // Format time function
   const formatTime = useCallback((date) => {
@@ -182,26 +174,6 @@ function App() {
     setCpuHistory(prev => updateHistory(prev, cpuValue, timestamp));
     setMemoryHistory(prev => updateHistory(prev, memoryValue, timestamp));
   }, [formatTime, updateHistory]);
-
-  // Check for significant changes
-  const hasSignificantChanges = useCallback((newData, oldData) => {
-    if (!oldData) return true;
-    
-    const cpuDiff = Math.abs(parseFloat(newData.cpu.load) - parseFloat(oldData.cpu.load));
-    if (cpuDiff >= 0.1) return true;
-    
-    const memDiff = Math.abs(parseFloat(newData.memory.usedPercent) - parseFloat(oldData.memory.usedPercent));
-    if (memDiff >= 1) return true;
-    
-    const diskChanged = newData.disk.some((newDisk, index) => {
-      const oldDisk = oldData.disk[index];
-      if (!oldDisk) return true;
-      return Math.abs(parseFloat(newDisk.usedPercent) - parseFloat(oldDisk.usedPercent)) >= 1;
-    });
-    if (diskChanged) return true;
-    
-    return false;
-  }, []);
 
   // Socket connection effect
   useEffect(() => {
@@ -296,6 +268,10 @@ function App() {
             console.error('Error updating system data:', err);
           }
         });
+
+        newSocket.on('websiteStatus', (data) => {
+          setWebsiteStatus(data);
+        });
       } catch (err) {
         console.error('Error in connectSocket:', err);
         setError(`Error koneksi: ${err.message}`);
@@ -314,7 +290,7 @@ function App() {
         socket.disconnect();
       }
     };
-  }, []);
+  }, [reconnectAttempts, socket, updateSystemData]);
 
   // Tambahkan useEffect untuk mengatasi hydration
   useEffect(() => {
@@ -421,6 +397,60 @@ function App() {
                   <p className="text-sm">{systemInfo?.os?.distro || 'Loading...'}</p>
                   <p className="text-sm">{systemInfo?.os?.platform === 'win32' ? 'Windows' : systemInfo?.os?.platform || 'Loading...'}</p>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Website Uptime Monitoring Card */}
+          <Card className="mb-6">
+            <CardHeader className="p-4">
+              <CardTitle className="flex items-center space-x-2 text-lg">
+                <MonitorIcon className="h-4 w-4" />
+                <span>Website Uptime Monitoring</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {websiteStatus.map((site, index) => (
+                  <div
+                    key={index}
+                    className="p-4 rounded-lg border bg-card shadow-sm"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-semibold">{site.name}</h3>
+                      {site.online ? (
+                        <CheckCircleIcon className="h-5 w-5 text-green-500" />
+                      ) : (
+                        <XCircleIcon className="h-5 w-5 text-red-500" />
+                      )}
+                    </div>
+                    <div className="text-sm text-muted-foreground mb-2">
+                      {site.url}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <div className={`px-2 py-1 rounded-full text-xs ${
+                        site.online 
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
+                          : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'
+                      }`}>
+                        {site.online ? 'Online' : 'Offline'}
+                      </div>
+                      {site.online && (
+                        <div className="text-xs text-muted-foreground">
+                          Response: {site.responseTime}ms
+                        </div>
+                      )}
+                    </div>
+                    {!site.online && site.error && (
+                      <div className="mt-2 text-xs text-red-500">
+                        Error: {site.error}
+                      </div>
+                    )}
+                    <div className="text-xs text-muted-foreground mt-2">
+                      Last checked: {new Date(site.timestamp).toLocaleTimeString()}
+                    </div>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
