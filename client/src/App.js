@@ -163,8 +163,9 @@ function App() {
       return new Date(date).toLocaleTimeString('id-ID', {
         hour: '2-digit',
         minute: '2-digit',
-        second: '2-digit'
-      });
+        second: '2-digit',
+        hour12: false
+      }).replace(/\./g, ':');
     } catch (error) {
       console.error('Error formatting time:', error);
       return '';
@@ -506,6 +507,7 @@ function App() {
               </CardHeader>
               <CardContent className="p-4 pt-0">
                 <div className="space-y-6">
+                  {/* Overall CPU Usage */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xl font-semibold">{systemInfo.cpu.load}%</span>
@@ -515,6 +517,21 @@ function App() {
                     </div>
                     <Progress value={parseFloat(systemInfo.cpu.load)} className="h-2" />
                   </div>
+
+                  {/* CPU Cores Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {systemInfo.cpu.perCore?.map((core, index) => (
+                      <div key={index} className="space-y-2 bg-card/50 p-3 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">Core {core.core}</span>
+                          <span className="text-sm font-semibold">{core.load}%</span>
+                        </div>
+                        <Progress value={parseFloat(core.load)} className="h-1.5" />
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* CPU History Graph */}
                   <div className="h-[180px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={cpuHistory.filter(item => item.time !== '')}>
@@ -671,7 +688,12 @@ function App() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xl font-semibold text-sky-500">{net.tx_sec}</span>
-                        <span className="text-xs text-muted-foreground">Upload</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs text-muted-foreground">Upload</span>
+                          <span className="text-xs text-muted-foreground">
+                            Last {HISTORY_LENGTH} seconds
+                          </span>
+                        </div>
                       </div>
                       <div className="h-[120px]">
                         <ResponsiveContainer width="100%" height="100%">
@@ -723,7 +745,12 @@ function App() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xl font-semibold text-emerald-500">{net.rx_sec}</span>
-                        <span className="text-xs text-muted-foreground">Download</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs text-muted-foreground">Download</span>
+                          <span className="text-xs text-muted-foreground">
+                            Last {HISTORY_LENGTH} seconds
+                          </span>
+                        </div>
                       </div>
                       <div className="h-[120px]">
                         <ResponsiveContainer width="100%" height="100%">

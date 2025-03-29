@@ -230,9 +230,12 @@ let lastNetworkTime = null;
 // Modifikasi fungsi getSystemInfo untuk mengoptimalkan data
 async function getSystemInfo() {
   try {
-    const [currentStats, cpu, mem, disk, osInfo] = await Promise.all([
+    const [currentStats, cpuData, mem, disk, osInfo] = await Promise.all([
       si.networkStats(),
-      si.currentLoad(),
+      si.currentLoad().then(data => ({
+        ...data,
+        cpus: data.cpus || [] // Memastikan ada data CPU per core
+      })),
       si.mem(),
       si.fsSize(),
       si.osInfo()
@@ -250,11 +253,9 @@ async function getSystemInfo() {
         const lastStat = lastNetworkStats.find(stat => stat.iface === current.iface);
         
         if (lastStat) {
-          // Hitung kecepatan berdasarkan delta bytes dan waktu sebenarnya
           rx_speed = (current.rx_bytes - lastStat.rx_bytes) / timeDiff;
           tx_speed = (current.tx_bytes - lastStat.tx_bytes) / timeDiff;
           
-          // Pastikan tidak ada nilai negatif
           rx_speed = Math.max(0, rx_speed);
           tx_speed = Math.max(0, tx_speed);
         }
@@ -276,8 +277,12 @@ async function getSystemInfo() {
     // Format data untuk response
     return {
       cpu: {
-        load: cpu.currentLoad ? cpu.currentLoad.toFixed(1) : '0.0',
-        cores: os.cpus().length
+        load: cpuData.currentLoad ? cpuData.currentLoad.toFixed(1) : '0.0',
+        cores: os.cpus().length,
+        perCore: cpuData.cpus.map((core, index) => ({
+          core: index + 1,
+          load: core.load ? core.load.toFixed(1) : '0.0'
+        }))
       },
       memory: {
         total: (mem.total / (1024 * 1024 * 1024)).toFixed(1),
