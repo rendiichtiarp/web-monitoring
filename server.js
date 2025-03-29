@@ -188,18 +188,67 @@ const formatBytes = (bytes, decimals = 2) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
+// Fungsi helper untuk memformat network speed
+const formatNetworkSpeed = (bytesPerSec, decimals = 2) => {
+  if (bytesPerSec === 0) return '0 bps';
+  const bits = bytesPerSec * 8; // Konversi bytes ke bits
+  const k = 1000;
+  const sizes = ['bps', 'Kbps', 'Mbps', 'Gbps'];
+  const i = Math.floor(Math.log(bits) / Math.log(k));
+  return parseFloat((bits / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[Math.min(i, sizes.length - 1)];
+};
+
+// Simpan data network terakhir untuk perhitungan delta
+let lastNetworkStats = null;
+let lastNetworkTime = null;
+
 // Modifikasi fungsi getSystemInfo untuk mengoptimalkan data
 async function getSystemInfo() {
   try {
-    const [cpu, mem, disk, osInfo, networkStats] = await Promise.all([
+    const [currentStats, cpu, mem, disk, osInfo] = await Promise.all([
+      si.networkStats(),
       si.currentLoad(),
       si.mem(),
       si.fsSize(),
-      si.osInfo(),
-      si.networkStats()
+      si.osInfo()
     ]);
 
-    // Format data minimal yang diperlukan
+    const currentTime = Date.now();
+    
+    // Hitung network speed berdasarkan delta waktu yang sebenarnya
+    const networkStats = currentStats.map((current) => {
+      let rx_speed = 0;
+      let tx_speed = 0;
+
+      if (lastNetworkStats && lastNetworkTime) {
+        const timeDiff = (currentTime - lastNetworkTime) / 1000; // Konversi ke detik
+        const lastStat = lastNetworkStats.find(stat => stat.iface === current.iface);
+        
+        if (lastStat) {
+          // Hitung kecepatan berdasarkan delta bytes dan waktu sebenarnya
+          rx_speed = (current.rx_bytes - lastStat.rx_bytes) / timeDiff;
+          tx_speed = (current.tx_bytes - lastStat.tx_bytes) / timeDiff;
+          
+          // Pastikan tidak ada nilai negatif
+          rx_speed = Math.max(0, rx_speed);
+          tx_speed = Math.max(0, tx_speed);
+        }
+      }
+
+      return {
+        iface: current.iface,
+        rx_sec: rx_speed,
+        tx_sec: tx_speed,
+        rx_bytes: current.rx_bytes,
+        tx_bytes: current.tx_bytes
+      };
+    });
+
+    // Update data terakhir untuk perhitungan berikutnya
+    lastNetworkStats = currentStats;
+    lastNetworkTime = currentTime;
+
+    // Format data untuk response
     return {
       cpu: {
         load: cpu.currentLoad ? cpu.currentLoad.toFixed(1) : '0.0',
@@ -219,10 +268,13 @@ async function getSystemInfo() {
       })),
       network: networkStats.map(net => ({
         interface: net.iface,
-        rx_sec: (net.rx_sec / 1024).toFixed(2),
-        tx_sec: (net.tx_sec / 1024).toFixed(2),
+        rx_sec: formatNetworkSpeed(net.rx_sec),
+        tx_sec: formatNetworkSpeed(net.tx_sec),
         rx_bytes: formatBytes(net.rx_bytes),
-        tx_bytes: formatBytes(net.tx_bytes)
+        tx_bytes: formatBytes(net.tx_bytes),
+        // Tambahkan nilai raw untuk grafik
+        rx_speed_raw: net.rx_sec,
+        tx_speed_raw: net.tx_sec
       })),
       os: {
         platform: osInfo.platform,
@@ -231,7 +283,7 @@ async function getSystemInfo() {
         hostname: os.hostname(),
         uptime: os.uptime()
       },
-      timestamp: Date.now()
+      timestamp: currentTime
     };
   } catch (error) {
     console.error('Error in getSystemInfo:', error);
